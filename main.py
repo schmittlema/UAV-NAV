@@ -28,8 +28,9 @@ def main():
         print "DONE: " + str(done)
 
     observation,reward,done,info = env.step(0)
-    plt.imshow(observation,cmap="gray")
-    plt.show()
+    env.close()
+    #plt.imshow(observation,cmap="gray")
+    #plt.show()
 
 t = threading.Thread(target=main,args =())
 t.daemon = True
