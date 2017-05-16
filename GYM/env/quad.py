@@ -30,40 +30,49 @@ import matplotlib.pyplot as plt
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
-    def _takeoff(self,pose):
-        print "Waiting for mavros..."
-        data = None
-        while data is None:
-            try:
-                data = rospy.wait_for_message('/mavros/global_position/rel_alt', Float64, timeout=5)
-            except:
-                pass
+    def _takeoff(self):
         
 	print "Got Mavros"
-        # Set OFFBOARD mode
-        rospy.wait_for_service('mavros/set_mode')
-        
-        #Must be sending points before connecting to offboard
-        for i in range(0,100):
-            self.local_pos.publish(pose)
-        try:
-            success = self.mode_proxy(0,'OFFBOARD')
-            print success
-        except rospy.ServiceException, e:
-            print ("mavros/set_mode service call failed: %s"%e)
-        print "offboard enabled"
+        last_request = rospy.Time.now()
+        while self.state != "OFFBOARD":
+            if rospy.Time.now() - last_request > rospy.Duration.from_sec(3):
+                # Set OFFBOARD mode
+                rospy.wait_for_service('mavros/set_mode')
+                
+                #Must be sending points before connecting to offboard
+                for i in range(0,100):
+                    self.local_pos.publish(self.pose)
+                try:
+                    success = self.mode_proxy(0,'OFFBOARD')
+                    print success
+                except rospy.ServiceException, e:
+                    print ("mavros/set_mode service call failed: %s"%e)
+                print "offboard enabled"
 
-        print "arming"
-        rospy.wait_for_service('mavros/cmd/arming')
-        try:
-           success = self.arm_proxy(True)
-           print success
-        except rospy.ServiceException, e:
-           print ("mavros/set_mode service call failed: %s"%e)
-           print "armed"
+                print "arming"
+                rospy.wait_for_service('mavros/cmd/arming')
+                try:
+                   success = self.arm_proxy(True)
+                   print success
+                except rospy.ServiceException, e:
+                   print ("mavros/set_mode service call failed: %s"%e)
+                   print "armed"
+                last_request = rospy.Time.now()
 
-        for i in range(0,500):
-            self.local_pos.publish(pose)
+        timeout = 150
+        err = 1
+        while err > .3:
+            err = abs(self.pose.pose.position.z - self.cur_pose.pose.position.z)
+            self.local_pos.publish(self.pose)
+            self.rate.sleep()
+            timeout -= 1 
+            if timeout < 0:
+                self._reset()
+                timeout = 150
+
+        self.started = True
+        print self.started
+        print "Initialized"
 
 
     def _launch_apm(self):
@@ -89,7 +98,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
         self.action_space = spaces.Discrete(4) # F, L, R, B
-        #self.observation_space = spaces.Box(low=0, high=20) #laser values
         self.reward_range = (-np.inf, np.inf)
 
         self.initial_latitude = None
@@ -105,10 +113,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
 
-        #self.pub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=10)
-        #self.unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
+        rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
-        #self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
+        self.unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
+
+        self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
 
         self.reset_proxy = rospy.ServiceProxy('/gazebo/reset_world', Empty)
 
@@ -127,11 +136,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         rospy.Subscriber('multisense_sl/camera/right/image_raw',Image,self.callbackright)
         rospy.Subscriber('camera/depth/image_raw',Image,self.callbackdepth)
 
-
+        self.state = ""
         self.twist = TwistStamped()
 
-        self.reset = False
-        self.x_vel = 1
+        self.x_vel = 0
         self.y_vel = 0
 
 
@@ -142,8 +150,26 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.cur_pose = PoseStamped()
 
+        self.pose = PoseStamped()
+        self.pose.pose.position.x = 0
+        self.pose.pose.position.y = 0
+        self.pose.pose.position.z = 2
+
+        self.hold_state = PoseStamped()
+        self.hold_state.pose.position.x = 0
+        self.hold_state.pose.position.y = 0
+
+        self.started = False
+        self.rate = rospy.Rate(10)
+
+        self.pause_sim = False
+
+
     def pos_cb(self,msg):
         self.cur_pose = msg
+
+    def state_cb(self,msg):
+        self.state = msg.mode
 
     def start(self):
 	counter = 15
@@ -151,24 +177,35 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    counter = counter -1
  	    time.sleep(1)
         
-        pose = PoseStamped()
-        pose.pose.position.x = 0
-        pose.pose.position.y = 0
-        pose.pose.position.z = 2
-
         vController = VelocityController()
-        vController.setTarget(pose.pose)
+        vController.setTarget(self.pose.pose)
 
-        self._takeoff(pose)
+        self.get_data()
+        self._takeoff()
 
-        rate = rospy.Rate(10)
         print "Main Running"
         while not rospy.is_shutdown():
-            des_vel = vController.update(self.cur_pose,self.x_vel,self.y_vel)
+            des_vel = vController.update(self.cur_pose,self.x_vel,self.y_vel,self.hold_state)
             self.local_vel.publish(des_vel)
-            if self.reset:
-                pose.pose.position.z = 2
-            rate.sleep()
+            self.rate.sleep()
+            self.pauser()
+
+    def pauser(self):
+        if self.pause_sim:
+            rospy.wait_for_service('/gazebo/pause_physics')
+            try:
+                self.pause()
+            except rospy.ServiceException, e:
+                print ("/gazebo/pause_physics service call failed")
+            while self.pause_sim:
+                self.rate.sleep()
+
+            rospy.wait_for_service('/gazebo/unpause_physics')
+            try:
+                self.unpause()
+            except rospy.ServiceException, e:
+                print ("/gazebo/unpause_physics service call failed")
+
 
     def callbackleft(self,data):
         try:
@@ -185,40 +222,33 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def callbackdepth(self,data):
         #print(self.depth_image.size)
         try:
-            img = self.bridge.imgmsg_to_cv2(data,"32FC1")
+            img = self.bridge.imgmsg_to_cv2(data,"passthrough")
+            self.depth_image = cv2.resize(img,(0,0),fx=0.5,fy=0.5)
         except CvBridgeError, e:
             print e
 
-        #img.astype(np.uint8)
-
-        self.depth_image = np.array(img, dtype=np.float32)
-        #print "SIZE"
-        #print self.depth_image.shape
-        #for c in range(0,np.size(self.depth_image,1)):
-        #    for r in range(0,np.size(self.depth_image,0)):
-        #        print self.depth_image[c][r]
-        #plt.imshow(self.depth_image.squeeze())
-        #plt.show()
-        #cv2.normalize(depth_array,self.depth_image,0,1,cv2.NORM_MINMAX)
-
-        cv2.imwrite('depth.png',80*self.depth_image)
-
+        self.depth_image = np.array(self.depth_image, dtype=np.uint8)
+        cv2.normalize(self.depth_image,self.depth_image,1,255,cv2.NORM_MINMAX)
+        #self.depth_image = self.depth_image * 50
 
     def observe(self):
-        print "observing"
-        #self.disparity = self.stereo.compute(self.left_img,self.right_img)
-        #plt.imshow(self.disparity)
-        #plt.imshow(self.depth_image)
-        #plt.show()
-        #cv2.imwrite("depth.png",self.depth_image)
-        print "observed"
-
+        return self.depth_image
+    
+    def wait_until_start(self):
+        while True:
+            if self.started:
+                break
+            time.sleep(1)
+        return
 
     def get_data(self):
-        while True:
-            data = rospy.wait_for_message('/mavros/global_position/rel_alt', Float64, timeout=5)
-            print data
-
+        print "Waiting for mavros..."
+        data = None
+        while data is None:
+            try:
+                data = rospy.wait_for_message('/mavros/global_position/rel_alt', Float64, timeout=5)
+            except:
+                pass
 
     def _seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -227,68 +257,41 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def _state(self, action):
         return discretized_ranges, done
 
+    def detect_crash(self):
+        if self.cur_pose.pose.position.z < 0.5:
+            return True
+        return False
+
     def _step(self, action):
-        if action == 0: #LEFT
-            self.twist.twist.linear.z = 500
+        self.pause_sim = False
+        if action == 0: #HOLD
+            if self.x_vel != 0:
+                self.hold_state = self.cur_pose
+            self.x_vel = 0
+
+        elif action == 2: #LEFT
+            self.x_vel = -2
         elif action == 1: #RIGHT
-            msg.channels[0] = 1450 # Roll
-            msg.channels[1] = 1500 # Pitch
-        elif action == 2: #UP
-            msg.channels[0] = 1550 # Roll
-            msg.channels[1] = 1500 # Pitch
-        elif action == 3: #DOWN
-            msg.channels[0] = 1500 # Roll
-            msg.channels[1] = 1550 # Pitch
-        elif action == 3: #NO_ACTION
-            msg.channels[0] = 1500 # Roll
-            msg.channels[1] = 1550 # Pitch
+            self.x_vel = 2
 
-        observation = self._get_position()
 
+        time.sleep(5)
+        observation = self.observe()
+        done = self.detect_crash()
         reward = self.get_reward()
 
-        return observation, reward, done, {}
+
+        self.pause_sim = True
+        return observation, reward,done,{}
 
     def get_reward(self):
-        print "hi"
+        return 1
 
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
         for pid in pids:
             os.system("kill -9 "+str(pid))
-
-    def _to_meters(self, n):
-        return n * 100000.0
-
-    def _get_position(self):
-        #read position data
-        data = None
-        while data is None:
-            try:
-                data = rospy.wait_for_message('/mavros/global_position/global', NavSatFix, timeout=5)
-            except:
-                pass
-
-        self.current_latitude = self._to_meters(data.latitude)
-        self.current_longitude = self._to_meters(data.longitude)
-
-        if self.initial_latitude == None and self.initial_longitude == None:
-            self.initial_latitude = self.current_latitude
-            self.initial_longitude = self.current_longitude
-            print "Initial latitude : %f, Initial Longitude : %f" % (self.initial_latitude,self.initial_longitude,)
-
-        print "Current latitude : %f, Current Longitude : %f" % (self.current_latitude,self.current_longitude,)
-
-        self.diff_latitude = self.current_latitude - self.initial_latitude
-        self.diff_longitude = self.current_longitude - self.initial_longitude
-
-        print "Diff latitude: %f, Diff Longitude: %f" % (self.diff_latitude,self.diff_longitude,)
-
-        return self.diff_latitude, self.diff_longitude
-
-    def center_distance(self):
-        return math.sqrt(self.diff_latitude**2 + self.diff_longitude**2)
 
     def _reset(self):
         # Resets the state of the environment and returns an initial observation.
@@ -300,8 +303,4 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             print ("/gazebo/reset_world service call failed")
         print "world reset"
 
-        self.reset = True
-        time.sleep(1)
-        self.reset = False
-
-        return self._get_position()
+        return self.observe()

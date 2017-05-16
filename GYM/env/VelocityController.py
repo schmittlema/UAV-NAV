@@ -27,7 +27,7 @@ class VelocityController:
     def setTarget(self, target):
         self.target = target
 
-    def update(self, state,x_vel,y_vel):
+    def update(self, state,x_vel,y_vel,hold_state):
         if (self.target is None):
             rospy.logwarn("Target position for velocity controller is none.")
             return None
@@ -41,12 +41,16 @@ class VelocityController:
         # output velocities
         linear = Vector3()
         angular = Vector3()
-        # Control in X vel
-        #       linear.x = self.X.update(self.target.position.x, position.x, time)
-        # Control in Y vel
-        #       linear.y = self.Y.update(self.target.position.y, position.y, time)
-        linear.x = x_vel
-        linear.y = y_vel
+        if x_vel == 0:
+            self.target.position.x = hold_state.pose.position.x
+            linear.x = self.X.update(self.target.position.x, position.x, time)
+        else:
+            linear.x = x_vel
+        if y_vel == 0:
+            self.target.position.y = hold_state.pose.position.y
+            linear.y = self.Y.update(self.target.position.y, position.y, time)
+        else:
+            linear.y = y_vel
         # Control in Z vel
         linear.z = self.Z.update(self.target.position.z, position.z, time)
         # Control yaw (no x, y angular)
