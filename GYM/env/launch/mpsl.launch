@@ -16,8 +16,8 @@
 
     <arg name="rcS" default="$(find px4)/posix-configs/SITL/init/$(arg est)/$(arg vehicle)"/>
 
-    <arg name="headless" default="false"/>
-    <arg name="gui" default="true"/>
+    <arg name="headless" default="true"/>
+    <arg name="gui" default="false"/>
     <arg name="ns" default="/"/>
     <arg name="fcu_url" default="udp://:14540@localhost:14557"/>
 
@@ -42,6 +42,7 @@
         <arg name="debug" value="$(arg debug)"/>
         <arg name="verbose" value="$(arg verbose)"/>
         <arg name="paused" value="$(arg paused)"/>
+        <arg name="use_sim_time" value="true"/>
     </include>
 
     <include file="$(find px4)/launch/mavros.launch">

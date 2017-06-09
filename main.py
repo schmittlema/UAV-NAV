@@ -28,18 +28,17 @@ def main():
         print "DONE: " + str(done)
 
     observation,reward,done,info = env.step(0)
-    env.close()
-    #plt.imshow(observation,cmap="gray")
-    #plt.show()
+    plt.imshow(observation,cmap="gray")
+    plt.show()
+    if done:
+        env.close()
+        env.env.close()
 
 t = threading.Thread(target=main,args =())
 t.daemon = True
 t.start()
 counter = 15
-while counter != 0:
-   counter = counter -1
-   print counter
-   time.sleep(1)
+
 env.reset()
 env.env.start()
 

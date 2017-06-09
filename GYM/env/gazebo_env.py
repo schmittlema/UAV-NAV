@@ -73,6 +73,9 @@ class GazeboEnv(gym.Env):
         gzserver_count = tmp.count('gzserver')
         roscore_count = tmp.count('roscore')
         rosmaster_count = tmp.count('rosmaster')
+        px4_count = tmp.count('px4')
+        mavros_count = tmp.count('mavros_node')
+        python_count = tmp.count('python')
 
         if gzclient_count > 0:
             os.system("killall -9 gzclient")
@@ -82,6 +85,12 @@ class GazeboEnv(gym.Env):
             os.system("killall -9 rosmaster")
         if roscore_count > 0:
             os.system("killall -9 roscore")
+        if px4_count > 0:
+            os.system("killall -9 px4")
+        if mavros_count > 0:
+            os.system("killall -9 mavros_node")
+        if python_count > 0:
+            os.system("killall -9 python")
 
         if (gzclient_count or gzserver_count or roscore_count or rosmaster_count >0):
             os.wait()

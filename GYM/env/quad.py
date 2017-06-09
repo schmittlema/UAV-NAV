@@ -6,6 +6,7 @@ import roslaunch
 import subprocess
 import time
 import math
+from random import randint
 
 from gym import utils, spaces
 import gazebo_env
@@ -34,30 +35,35 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         
 	print "Got Mavros"
         last_request = rospy.Time.now()
-        while self.state != "OFFBOARD":
-            if rospy.Time.now() - last_request > rospy.Duration.from_sec(3):
+        while self.state.mode != "OFFBOARD" or not self.state.armed:
+            if rospy.Time.now() - last_request > rospy.Duration.from_sec(5):
+                self._reset()
                 # Set OFFBOARD mode
                 rospy.wait_for_service('mavros/set_mode')
                 
                 #Must be sending points before connecting to offboard
                 for i in range(0,100):
                     self.local_pos.publish(self.pose)
-                try:
-                    success = self.mode_proxy(0,'OFFBOARD')
-                    print success
-                except rospy.ServiceException, e:
-                    print ("mavros/set_mode service call failed: %s"%e)
-                print "offboard enabled"
+                if self.state.mode != "OFFBOARD":
+                    try:
+                        success = self.mode_proxy(0,'OFFBOARD')
+                        print success
+                    except rospy.ServiceException, e:
+                        print ("mavros/set_mode service call failed: %s"%e)
+                    print "offboard enabled"
 
-                print "arming"
-                rospy.wait_for_service('mavros/cmd/arming')
-                try:
-                   success = self.arm_proxy(True)
-                   print success
-                except rospy.ServiceException, e:
-                   print ("mavros/set_mode service call failed: %s"%e)
-                   print "armed"
+                if not self.state.armed:
+                    print "arming"
+                    rospy.wait_for_service('mavros/cmd/arming')
+                    try:
+                       success = self.arm_proxy(True)
+                       print success
+                    except rospy.ServiceException, e:
+                       print ("mavros/set_mode service call failed: %s"%e)
+                    print "armed"
                 last_request = rospy.Time.now()
+            self.local_pos.publish(self.pose)
+            self.rate.sleep()
 
         timeout = 150
         err = 1
@@ -98,16 +104,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
         self.action_space = spaces.Discrete(4) # F, L, R, B
-        self.reward_range = (-np.inf, np.inf)
 
-        self.initial_latitude = None
-        self.initial_longitude = None
-
-        self.current_latitude = None
-        self.current_longitude = None
-
-        self.diff_latitude = None
-        self.diff_longitude = None
+        self.targetx = randint(0,10)
+        self.targety = randint(0,10)
 
         self.max_distance = 1.6
 
@@ -163,13 +162,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.rate = rospy.Rate(10)
 
         self.pause_sim = False
+        self.nowait = True
+        self.new_pose = False
+        self.steps = 0
+        self.max_episode_length = 0
 
 
     def pos_cb(self,msg):
         self.cur_pose = msg
+        self.new_pose = True
 
     def state_cb(self,msg):
-        self.state = msg.mode
+        self.state = msg
 
     def start(self):
 	counter = 15
@@ -182,6 +186,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.get_data()
         self._takeoff()
+        self.nowait = False
 
         print "Main Running"
         while not rospy.is_shutdown():
@@ -191,13 +196,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.pauser()
 
     def pauser(self):
-        if self.pause_sim:
+        if self.pause_sim and not rospy.is_shutdown():
             rospy.wait_for_service('/gazebo/pause_physics')
             try:
                 self.pause()
             except rospy.ServiceException, e:
                 print ("/gazebo/pause_physics service call failed")
-            while self.pause_sim:
+            while self.pause_sim and not rospy.is_shutdown():
                 self.rate.sleep()
 
             rospy.wait_for_service('/gazebo/unpause_physics')
@@ -233,12 +238,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def observe(self):
         return self.depth_image
+
+    def observe_test(self):
+        return [self.cur_pose.pose.position.x,self.cur_pose.pose.position.y,self.x_vel,self.y_vel]
     
     def wait_until_start(self):
         while True:
             if self.started:
                 break
-            time.sleep(1)
+            self.rate.sleep()
         return
 
     def get_data(self):
@@ -254,39 +262,55 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def _state(self, action):
-        return discretized_ranges, done
-
     def detect_crash(self):
         if self.cur_pose.pose.position.z < 0.5:
             return True
         return False
 
+    def detect_done(self,reward):
+        done = False
+        if self.detect_crash():
+            done = True
+        if abs(reward) < .5:
+            done = True
+        if self.steps >= self.max_episode_length:
+            done = True
+            self.steps = 0
+        return done
+
     def _step(self, action):
+        self.steps += 1
         self.pause_sim = False
         if action == 0: #HOLD
-            if self.x_vel != 0:
-                self.hold_state = self.cur_pose
+            #if self.x_vel != 0 or self.y_vel != 0:
+            #self.hold_state = self.cur_pose
             self.x_vel = 0
-
-        elif action == 2: #LEFT
-            self.x_vel = -2
+            self.y_vel = 0
         elif action == 1: #RIGHT
+            self.x_vel = -2
+        elif action == 2: #LEFT
             self.x_vel = 2
+        elif action == 3: #Forward
+            self.y_vel = 2
+        elif action == 4: #Reverse
+            self.y_vel = -2
 
-
-        time.sleep(5)
-        observation = self.observe()
-        done = self.detect_crash()
+        self.rate.sleep()
+        observation = self.observe_test()
         reward = self.get_reward()
 
+        done = self.detect_done(reward) 
 
+        if done:
+            self.targetx = randint(0,10)
+            self.targety = randint(0,10)
+            print "TARGET: ",self.targetx,self.targety
         self.pause_sim = True
         return observation, reward,done,{}
 
     def get_reward(self):
-        return 1
-
+        #Returns distance from target as a summation of x and y error
+        return -1.0 * (self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
@@ -294,6 +318,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             os.system("kill -9 "+str(pid))
 
     def _reset(self):
+        return self.observe_test()
+
+    def hard_reset(self):
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
         rospy.wait_for_service('/gazebo/reset_world')
@@ -301,6 +328,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.reset_proxy()
         except rospy.ServiceException, e:
             print ("/gazebo/reset_world service call failed")
-        print "world reset"
 
-        return self.observe()
+        self.started = False
+        self.new_pose = False
+        err = 10
+        while not self.new_pose:
+            self.rate.sleep()
+
+        while not self.started:
+            err = abs(self.pose.pose.position.z - self.cur_pose.pose.position.z)
+            if err <.3:
+                self.started = True
+            self.rate.sleep()
+        print "hard world reset"
+
+        return self.observe_test()
