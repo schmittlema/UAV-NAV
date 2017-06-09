@@ -25,7 +25,7 @@
     <arg name="verbose" default="false"/>
     <arg name="paused" default="false"/>
 
-    <include file="$(find px4)/launch/posix_sitl.launch">
+    <include file="posix_sitl.launch">
         <arg name="x" value="$(arg x)"/>
         <arg name="y" value="$(arg y)"/>
         <arg name="z" value="$(arg z)"/>
