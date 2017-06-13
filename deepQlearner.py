@@ -19,6 +19,8 @@ np.set_printoptions(threshold='nan')
 #-------------------------------------------------------------------------
 
 #Network Struccture: feed forward 4x10x10x10x5
+#Input = x,y position and velocity
+#Output = Q values for forward, back, left, right, hold
 n_nodes_h1 = 10
 n_nodes_h2 = 10
 n_nodes_h3 = 10
@@ -33,36 +35,36 @@ startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
 anneling_steps = 10000. #How many steps of training to reduce startE to endE.
 num_episodes = 10000 #How many episodes of game environment to train network with.
-max_epLength = 50 #The max allowed length of our episode.
+max_epLength = 500 #The max allowed length of our episode.
 load_model = False #Whether to load a saved model.
-path = "./dqn" #The path to save our model to.
+path = "./log/logfile-0" #The path to save our model to.
 h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
 tau = 0.001 #Rate to update target network toward primary network
-steps_till_training = 100 #Steps network takes before training so it has a batch to sample from
+steps_till_training = 1000 #Steps network takes before training so it has a batch to sample from
 #--------------------------------------------------------------------------
 
 class Qnetwork():
     def __init__(self):
         #The network recieves a frame from the game, flattened into an array.
         #It then resizes it and processes it through four convolutional layers.
-	self.data = tf.placeholder('float',[None,4]) #input data
+	self.data = tf.placeholder('float',[None,4],name="input") #input data
+	with tf.name_scope("layer1"):
+		hidden_1_layer = {'weights':tf.Variable(tf.random_normal([4,n_nodes_h1]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h1]),name="B")}
+		l1 = tf.add(tf.matmul(self.data,hidden_1_layer['weights']),hidden_1_layer['biases'])
+		l1 = tf.nn.relu(l1)
 
-	hidden_1_layer = {'weights':tf.Variable(tf.random_normal([4,n_nodes_h1])),'biases':tf.Variable(tf.random_normal([n_nodes_h1]))}
-
-    	hidden_2_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h1,n_nodes_h2])),'biases':tf.Variable(tf.random_normal([n_nodes_h2]))}
+	with tf.name_scope("layer2"):
+		hidden_2_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h1,n_nodes_h2]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h2]),name="B")}
+		l2 = tf.add(tf.matmul(l1,hidden_2_layer['weights']),hidden_2_layer['biases'])
+		l2 = tf.nn.relu(l2)
     
-    	hidden_3_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h2,n_nodes_h3])),'biases':tf.Variable(tf.random_normal([n_nodes_h3]))}
+	with tf.name_scope("layer3"):
+		hidden_3_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h2,n_nodes_h3]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h3]),name="B")}
+		l3 = tf.add(tf.matmul(l2,hidden_3_layer['weights']),hidden_3_layer['biases'])
+		l3 = tf.nn.relu(l3)
 
-    	output_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h3,n_classes])),'biases':tf.Variable(tf.random_normal([n_classes]))}
-
-	l1 = tf.add(tf.matmul(self.data,hidden_1_layer['weights']),hidden_1_layer['biases'])
-	l1 = tf.nn.relu(l1)
-
-	l2 = tf.add(tf.matmul(l1,hidden_2_layer['weights']),hidden_2_layer['biases'])
-	l2 = tf.nn.relu(l2)
-
-	l3 = tf.add(tf.matmul(l2,hidden_3_layer['weights']),hidden_3_layer['biases'])
-	l3 = tf.nn.relu(l3)
+	with tf.name_scope("output_layer"):
+		output_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h3,n_classes]),name="W"),'biases':tf.Variable(tf.random_normal([n_classes]),name="B")}
     
     	self.Qout = tf.add(tf.matmul(l3,output_layer['weights']),output_layer['biases'])
 		
@@ -76,10 +78,13 @@ class Qnetwork():
         
         self.Q = tf.reduce_sum(tf.multiply(self.Qout, self.actions_onehot), axis=1)
         
-        self.td_error = tf.square(self.targetQ - self.Q)
-        self.loss = tf.reduce_mean(self.td_error)
-        self.trainer = tf.train.AdamOptimizer(learning_rate=0.0001)
-        self.updateModel = self.trainer.minimize(self.loss)
+	with tf.name_scope("loss"):
+		self.td_error = tf.square(self.targetQ - self.Q)
+		self.loss = tf.reduce_mean(self.td_error)
+
+	with tf.name_scope("train"):
+		self.trainer = tf.train.AdamOptimizer(learning_rate=0.0001)
+		self.updateModel = self.trainer.minimize(self.loss)
 
 
 
@@ -113,8 +118,6 @@ def main():
 	mainQN = Qnetwork()
 	targetQN = Qnetwork()
 
-	init = tf.global_variables_initializer()
-
 	saver = tf.train.Saver()
 
 	trainables = tf.trainable_variables()
@@ -131,29 +134,42 @@ def main():
 	jList = []
 	rList = []
 	total_steps = 0
+	rAll_t = tf.Variable(0.0)
+	j_t = tf.Variable(0.0)
+
+	tf.summary.scalar('reward',rAll_t)
+	tf.summary.scalar('episode_length',j_t)
 
 	#Make a path for our model to be saved in.
 	if not os.path.exists(path):
 		os.makedirs(path)
 
-	with tf.Session() as sess:
-	    sess.run(init)
+	with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
 	    if load_model == True:
 		print('Loading Model...')
 		ckpt = tf.train.get_checkpoint_state(path)
 		saver.restore(sess,ckpt.model_checkpoint_path)
+
+            init = tf.global_variables_initializer()
+	    sess.run(init)
+	    merged_summary = tf.summary.merge_all()
+	    writer = tf.summary.FileWriter("/root/UAV-NAV/log/logfile-0")
+
             updateTarget(targetOps,sess) #Set the target network to be equal to the primary network
+
+	    writer.add_graph(sess.graph)
+
             env.env.wait_until_start()
             for i in range(num_episodes):
 	        episodeBuffer = experience_buffer()
 		#Reset environment and get first new observation
                 s = env.reset()
                 d = False
-                rAll = 0
-                j = 0
+		rAll = 0
+		j=0
                 #The Q-Network
                 while j < max_epLength: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
-                    j+=1
+		    j+=1
                     #Choose an action by greedily (with e chance of random action) from the Q-network
                     if np.random.rand(1) < e:
                         a = np.random.randint(0,4)
@@ -179,7 +195,7 @@ def main():
                         _ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]),mainQN.targetQ:targetQ, mainQN.actions:trainBatch[:,1]})
                             
                         updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
-                    rAll += r
+                    rAll+=r
                     s = s1
                     
                     if d:
@@ -188,7 +204,14 @@ def main():
                 myBuffer.add(episodeBuffer.buffer)
                 jList.append(j)
                 rList.append(rAll)
+
                 #Periodically save the model. 
+		print "RECORDING",rAll,j
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j)])
+		summury = sess.run(merged_summary)
+		writer.add_summary(summury,i)
+		writer.flush()
+
                 if i % 1000 == 0:
                     saver.save(sess,path+'/model-'+str(i)+'.cptk')
                     print("Saved Model")
@@ -197,6 +220,7 @@ def main():
         saver.save(sess,path+'/model-final'+str(i)+'.cptk')
         env.close()
         env.env.close()
+	writer.close()
 	print("Percent of succesful episodes: " + str(sum(rList)/num_episodes) + "%")
 
 if __name__ == "__main__":

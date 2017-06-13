@@ -89,17 +89,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         programPause = raw_input(str(msg))
 
     def __init__(self):
-
-        RED = '\033[91m'
-        BOLD = '\033[1m'
-        ENDC = '\033[0m'        
-        LINE = "%s%s##############################################################################%s" % (RED, BOLD, ENDC)
-        msg = "\n%s\n" % (LINE)
-        msg += "%sLoad Erle-Copter parameters in MavProxy console (sim_vehicle.sh):%s\n\n" % (BOLD, ENDC)
-        msg += "MAV> param load %s\n\n" % (str(os.environ["ERLE_COPTER_PARAM_PATH"]))
-        msg += "%sThen, press <Enter> here to launch Gazebo...%s\n\n%s" % (BOLD, ENDC,  LINE)
-        self._pause(msg)
-
         # Launch the simulation with the given launchfile name
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
@@ -165,7 +154,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.nowait = True
         self.new_pose = False
         self.steps = 0
-        self.max_episode_length = 0
+        self.max_episode_length = 500
 
 
     def pos_cb(self,msg):
@@ -263,17 +252,22 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return [seed]
 
     def detect_crash(self):
-        if self.cur_pose.pose.position.z < 0.5:
+        if self.cur_pose.pose.position.z < 0.3:
             return True
         return False
 
     def detect_done(self,reward):
         done = False
         if self.detect_crash():
+	    print "CRASH"
             done = True
-        if abs(reward) < .5:
+            self.steps = 0
+        if reward == 1:
+	    print "GOAL"
             done = True
+            self.steps = 0
         if self.steps >= self.max_episode_length:
+	    print "MAXOUT"
             done = True
             self.steps = 0
         return done
@@ -307,10 +301,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             print "TARGET: ",self.targetx,self.targety
         self.pause_sim = True
         return observation, reward,done,{}
+    def sigmoid(self,x):
+        return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self):
-        #Returns distance from target as a summation of x and y error
-        return -1.0 * (self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2
+        #Returns distance from target normalized to -1 to 0 with a reward of 1 for hitting the goal 
+	raw = math.sqrt((self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2)
+	if raw < 0.1:
+	   return 1.0
+	else:
+           return -1.0 + -1* self.sigmoid(raw)
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
