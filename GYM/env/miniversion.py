@@ -65,12 +65,12 @@ pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=
 start_pos = PoseStamped()
 start_pos.pose.position.x = 0
 start_pos.pose.position.y = 0
-start_pos.pose.position.z = 0
+start_pos.pose.position.z = 10
 
 target = Pose()
 target.position.x = 0
 target.position.y = 0
-target.position.z = 2
+target.position.z = 10
 
 vController = VelocityController()
 vController.setTarget(target)
@@ -115,6 +115,7 @@ except rospy.ServiceException, e:
 rate = rospy.Rate(10)
 print "Main Running"
 while not rospy.is_shutdown():
-    des_vel = vController.update(cur_pose,x_vel,y_vel)
-    vel_pub.publish(des_vel)
+    #des_vel = vController.update(cur_pose,x_vel,y_vel)
+    #vel_pub.publish(des_vel)
+    local_pos.publish(start_pos)
     rate.sleep()
