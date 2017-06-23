@@ -18,28 +18,29 @@ np.set_printoptions(threshold='nan')
 #PARAMETERS
 #-------------------------------------------------------------------------
 
-#Network Struccture: feed forward 4x10x10x10x5
+#Network Structure: feed forward 4x10x10x10x5
 #Input = x,y position and velocity
 #Output = Q values for forward, back, left, right, hold
-n_nodes_h1 = 10
-n_nodes_h2 = 10
-n_nodes_h3 = 10
+n_nodes_h1 = 5
+n_nodes_h2 = 5
+n_nodes_h3 = 5
 
 #I mean actions
-n_classes = 5
+n_classes = 6
 
 batch_size = 32 #How many experiences to use for each training step.
 update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
-anneling_steps = 10000. #How many steps of training to reduce startE to endE.
+anneling_steps = 5000 #How many steps of training to reduce startE to endE.
 num_episodes = 10000 #How many episodes of game environment to train network with.
-max_epLength = 500 #The max allowed length of our episode.
+max_epLength = 200 #The max allowed length of our episode.
 load_model = False #Whether to load a saved model.
-path = "./log/logfile-0" #The path to save our model to.
+path = "../log/logfile-exp-0" #The path to save our model to.
 h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
 tau = 0.001 #Rate to update target network toward primary network
+learning-rate = 0.001
 steps_till_training = 1000 #Steps network takes before training so it has a batch to sample from
 #--------------------------------------------------------------------------
 
@@ -83,7 +84,7 @@ class Qnetwork():
 		self.loss = tf.reduce_mean(self.td_error)
 
 	with tf.name_scope("train"):
-		self.trainer = tf.train.AdamOptimizer(learning_rate=0.0001)
+		self.trainer = tf.train.AdamOptimizer(learning_rate=learning-rate)
 		self.updateModel = self.trainer.minimize(self.loss)
 
 
@@ -136,15 +137,17 @@ def main():
 	total_steps = 0
 	rAll_t = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
+	successes = tf.Variable(0)
 
 	tf.summary.scalar('reward',rAll_t)
 	tf.summary.scalar('episode_length',j_t)
+	tf.summary.scalar('number_of_successes_total',successes)
 
 	#Make a path for our model to be saved in.
 	if not os.path.exists(path):
 		os.makedirs(path)
 
-	with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+	with tf.Session() as sess:
 	    if load_model == True:
 		print('Loading Model...')
 		ckpt = tf.train.get_checkpoint_state(path)
@@ -153,7 +156,7 @@ def main():
             init = tf.global_variables_initializer()
 	    sess.run(init)
 	    merged_summary = tf.summary.merge_all()
-	    writer = tf.summary.FileWriter("/root/UAV-NAV/log/logfile-0")
+	    writer = tf.summary.FileWriter(path)
 
             updateTarget(targetOps,sess) #Set the target network to be equal to the primary network
 
@@ -172,7 +175,7 @@ def main():
 		    j+=1
                     #Choose an action by greedily (with e chance of random action) from the Q-network
                     if np.random.rand(1) < e:
-                        a = np.random.randint(0,4)
+                        a = np.random.randint(0,n_classes)
                     else:
                         a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
                     s1,r,d,info = env.step(a)
@@ -206,8 +209,7 @@ def main():
                 rList.append(rAll)
 
                 #Periodically save the model. 
-		print "RECORDING",rAll,j
-		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j)])
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes)])
 		summury = sess.run(merged_summary)
 		writer.add_summary(summury,i)
 		writer.flush()
@@ -225,7 +227,7 @@ def main():
 
 if __name__ == "__main__":
     env = gym.make('GazeboQuadEnv-v0')
-    env = wrappers.Monitor(env,'./dqn/scoreboard',force=True)
+    env = wrappers.Monitor(env,path,force=True)
     t = threading.Thread(target=main,args =())
     t.daemon = True
     t.start()
