@@ -219,11 +219,10 @@ def main():
                     print("Saved Model")
                 if len(rList) % 10 == 0:
                     print(total_steps,np.mean(rList[-10:]), e)
-        saver.save(sess,path+'/model-final'+str(i)+'.cptk')
-        env.close()
-        env.env.close()
-	writer.close()
-	print("Percent of succesful episodes: " + str(sum(rList)/num_episodes) + "%")
+	    saver.save(sess,path+'/model-final'+str(i)+'.cptk')
+	    env.close()
+	    env.env.close()
+	    writer.close()
 
 if __name__ == "__main__":
     env = gym.make('GazeboQuadEnv-v0')
