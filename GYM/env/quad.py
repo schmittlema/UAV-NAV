@@ -309,7 +309,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.rate.sleep()
         observation = self.observe_test()
         reward = self.get_state_reward()
-	print reward
 
         done,reward = self.detect_done(reward) 
 

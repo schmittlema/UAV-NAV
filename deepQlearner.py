@@ -28,12 +28,13 @@ n_nodes_h3 = 5
 #I mean actions
 n_classes = 6
 
+buff_size = 1000000
 batch_size = 32 #How many experiences to use for each training step.
 update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
-anneling_steps = 40000 #How many steps of training to reduce startE to endE.
+anneling_steps = 500000 #How many steps of training to reduce startE to endE.
 num_episodes = 10000 #How many episodes of game environment to train network with.
 max_epLength = 200 #The max allowed length of our episode.
 load_model = False #Whether to load a saved model.
@@ -41,7 +42,7 @@ path = "../log/logfile-exp-1" #The path to save our model to.
 h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
-steps_till_training = 1000 #Steps network takes before training so it has a batch to sample from
+steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
 #--------------------------------------------------------------------------
 
 class Qnetwork():
@@ -90,7 +91,7 @@ class Qnetwork():
 
 
 class experience_buffer():
-    def __init__(self, buffer_size = 50000):
+    def __init__(self, buffer_size = buff_size):
         self.buffer = []
         self.buffer_size = buffer_size
     
@@ -174,7 +175,7 @@ def main():
                 while j < max_epLength: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
 		    j+=1
                     #Choose an action by greedily (with e chance of random action) from the Q-network
-                    if np.random.rand(1) < e:
+                    if np.random.rand(1) < e or total_steps < steps_till_training:
                         a = np.random.randint(0,n_classes)
                     else:
                         a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
