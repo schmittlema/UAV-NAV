@@ -96,6 +96,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.max_distance = 1.6
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
+        rospy.Subscriber('/mavros/local_position/velocity', TwistStamped, callback=self.vel_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -137,6 +138,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self._seed()
 
         self.cur_pose = PoseStamped()
+	self.cur_vel = TwistStamped()
 
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
@@ -161,6 +163,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def pos_cb(self,msg):
         self.cur_pose = msg
         self.new_pose = True
+
+    def vel_cb(self,msg):
+        self.cur_vel = msg
 
     def state_cb(self,msg):
         self.state = msg
@@ -291,13 +296,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.steps += 1
         self.pause_sim = 0 
         if action == 0: #HOLD
-            self.x_vel = 0
+            self.x_vel = 0.5
         elif action == 1: #RIGHT
-            self.x_vel = -1
+            self.x_vel = -.5
         elif action == 2: #LEFT
-            self.x_vel = 1
+            self.x_vel = .5
 
         self.rate.sleep()
+	while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
+	    self.rate.sleep()
         observation = self.observe_test()
         reward = self.get_state_reward()
 
