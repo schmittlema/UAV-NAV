@@ -91,11 +91,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         # Launch the simulation with the given launchfile name
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
-        self.action_space = spaces.Discrete(4) # F, L, R, B
-
-        self.targetx = randint(0,10)
-        self.targety = randint(0,10)
-
+        self.targetx = randint(-10,10)
+        self.targety = 0
         self.max_distance = 1.6
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
@@ -232,7 +229,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return self.depth_image
 
     def observe_test(self):
-        return [self.cur_pose.pose.position.x,self.cur_pose.pose.position.y,self.targetx,self.targety]
+        return [self.cur_pose.pose.position.x,self.targetx]
     
     def wait_until_start(self):
         while True:
@@ -296,15 +293,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if action == 0: #HOLD
             self.x_vel = 0
         elif action == 1: #RIGHT
-            self.x_vel = -2
+            self.x_vel = -1
         elif action == 2: #LEFT
-            self.x_vel = 2
-        elif action == 3: #Forward
-            self.y_vel = 2
-        elif action == 4: #Reverse
-            self.y_vel = -2
-	elif action == 5:
-	    self.y_vel = 0
+            self.x_vel = 1
 
         self.rate.sleep()
         observation = self.observe_test()
@@ -313,8 +304,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         done,reward = self.detect_done(reward) 
 
         if done:
-            self.targetx = randint(0,10)
-            self.targety = randint(0,10)
+            self.targetx = randint(-10,10)
             print "TARGET: ",self.targetx,self.targety
         self.pause_sim = 1
         return observation, reward,done,{}
@@ -344,7 +334,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    return diff* -1
 
     def get_state_reward(self):
-        raw = .2/math.sqrt((self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2)
+	raw = .2/abs(self.targetx-self.cur_pose.pose.position.x)
 	return raw
 
 

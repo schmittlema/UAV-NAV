@@ -26,7 +26,8 @@ n_nodes_h2 = 5
 n_nodes_h3 = 5
 
 #I mean actions
-n_classes = 6
+n_classes = 3
+input_size = 2
 
 buff_size = 1000000
 batch_size = 32 #How many experiences to use for each training step.
@@ -38,7 +39,7 @@ anneling_steps = 500000 #How many steps of training to reduce startE to endE.
 num_episodes = 10000 #How many episodes of game environment to train network with.
 max_epLength = 200 #The max allowed length of our episode.
 load_model = False #Whether to load a saved model.
-path = "../log/logfile-exp-1" #The path to save our model to.
+path = "../log/logfile-exp-4" #The path to save our model to.
 h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
@@ -49,9 +50,9 @@ class Qnetwork():
     def __init__(self):
         #The network recieves a frame from the game, flattened into an array.
         #It then resizes it and processes it through four convolutional layers.
-	self.data = tf.placeholder('float',[None,4],name="input") #input data
+	self.data = tf.placeholder('float',[None,input_size],name="input") #input data
 	with tf.name_scope("layer1"):
-		hidden_1_layer = {'weights':tf.Variable(tf.random_normal([4,n_nodes_h1]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h1]),name="B")}
+		hidden_1_layer = {'weights':tf.Variable(tf.random_normal([input_size,n_nodes_h1]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h1]),name="B")}
 		l1 = tf.add(tf.matmul(self.data,hidden_1_layer['weights']),hidden_1_layer['biases'])
 		l1 = tf.nn.relu(l1)
 
