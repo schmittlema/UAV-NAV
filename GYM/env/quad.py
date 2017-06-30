@@ -282,29 +282,28 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
 	    self.successes += 1
-	    reward = reward + 1
         if self.steps >= self.max_episode_length:
 	    print "MAXOUT"
             done = True
             self.steps = 0
 	    self.old_reward = -10
 	    self.reset_model()
-	    reward = reward -1
+	    reward = reward -2
         return done,reward
 
     def _step(self, action):
         self.steps += 1
         self.pause_sim = 0 
         if action == 0: #HOLD
-            self.x_vel = 0.5
+            self.x_vel = 0
         elif action == 1: #RIGHT
-            self.x_vel = -.5
+            self.x_vel = -1
         elif action == 2: #LEFT
-            self.x_vel = .5
+            self.x_vel = 1
 
         self.rate.sleep()
-	while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
-	    self.rate.sleep()
+	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
+	#    self.rate.sleep()
         observation = self.observe_test()
         reward = self.get_state_reward()
 
@@ -342,7 +341,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def get_state_reward(self):
 	raw = .2/abs(self.targetx-self.cur_pose.pose.position.x)
-	return raw
+	if raw >=1:
+	    return 10
+	else:
+	    return -.01
 
 
     def _killall(self, process_name):
