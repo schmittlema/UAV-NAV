@@ -160,8 +160,6 @@ def main():
 	    merged_summary = tf.summary.merge_all()
 	    writer = tf.summary.FileWriter(path)
 
-            updateTarget(targetOps,sess) #Set the target network to be equal to the primary network
-
 	    writer.add_graph(sess.graph)
 
             env.env.wait_until_start()
@@ -185,7 +183,7 @@ def main():
                     episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
                     
                     
-                    if e > endE:
+                    if e > endE and total_steps > steps_till_training:
                         e -= stepDrop
                         
                     if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
