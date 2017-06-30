@@ -277,7 +277,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
 	    self.hard_reset()
 	    self.old_reward = -10
-        if reward >= 1:
+        if reward == 10:
 	    print "GOAL"
             done = True
             self.steps = 0
@@ -305,7 +305,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
 	#    self.rate.sleep()
         observation = self.observe_test()
-        reward = self.get_state_reward()
+        reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
 
@@ -318,14 +318,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def sigmoid(self,x):
         return (1 / (1 + math.exp(-x)))*2
 
-    def get_reward(self):
-        #Returns distance from target normalized to -1 to 0 with a reward of 1 for hitting the goal 
-	#DEPRECATED
-	raw = math.sqrt((self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2)
-	if raw < 0.1:
-	   return 1.0
+    def get_reward(self,action):
+	raw = .2/abs(self.targetx-self.cur_pose.pose.position.x)
+	direction = self.targetx-self.cur_pose.pose.position.x
+	if raw >=1:
+	    return 10
 	else:
-           return -1.0 + -1* self.sigmoid(raw)
+	    if action ==1 and direction < 0 or action==2 and direction > 0:
+		return -0.001
+	    else:
+	        return -.01
 
     def collect_reward(self):
 	#Returns a -1 if moving futher away and a +1 if moving closer.It will return 10 if it hits goal
