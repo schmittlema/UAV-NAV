@@ -80,10 +80,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         print "Initialized"
 
 
-    def _launch_apm(self):
-        sim_vehicle_sh = str(os.environ["ARDUPILOT_PATH"]) + "/Tools/autotest/sim_vehicle.sh"
-        subprocess.Popen(["xterm","-e",sim_vehicle_sh,"-j4","-f","Gazebo","-v","ArduCopter"])
-
     def _pause(self, msg):
         programPause = raw_input(str(msg))
 
@@ -257,7 +253,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	modelstate.model_name = "f450"
 	modelstate.pose.position.x = 0
 	modelstate.pose.position.y = 0
-	modelstate.pose.position.z = 2
+	modelstate.pose.position.z = 0
 	self.model_state(modelstate)
 
     def _seed(self, seed=None):
@@ -276,7 +272,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
 	    self.hard_reset()
-	    self.old_reward = -10
         if reward == 10:
 	    print "GOAL"
             done = True
@@ -286,7 +281,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    print "MAXOUT"
             done = True
             self.steps = 0
-	    self.old_reward = -10
 	    self.reset_model()
 	    reward = reward -2
         return done,reward
@@ -304,14 +298,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.rate.sleep()
 	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
 	#    self.rate.sleep()
-        observation = self.observe_test()
+        observation = self.observe()
         reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
 
         if done:
             self.targetx = randint(-10,10)
-            print "TARGET: ",self.targetx,self.targety
         self.pause_sim = 1
         return observation, reward,done,{}
 
@@ -360,6 +353,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def hard_reset(self):
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
+        self.reset_model()
         rospy.wait_for_service('/gazebo/reset_world')
         try:
             self.reset_proxy()
