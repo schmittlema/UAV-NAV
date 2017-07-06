@@ -185,7 +185,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         print "Main Running"
         while not rospy.is_shutdown():
-            des_vel = vController.update(self.cur_pose,self.x_vel,self.y_vel,self.hold_state)
+            des_vel = vController.update(self.cur_pose,self.x_vel,self.y_vel,self.cur_pose)
             self.local_vel.publish(des_vel)
             self.rate.sleep()
             self.pauser()
