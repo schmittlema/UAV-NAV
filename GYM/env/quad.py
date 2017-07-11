@@ -80,10 +80,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         print "Initialized"
 
 
-    def _launch_apm(self):
-        sim_vehicle_sh = str(os.environ["ARDUPILOT_PATH"]) + "/Tools/autotest/sim_vehicle.sh"
-        subprocess.Popen(["xterm","-e",sim_vehicle_sh,"-j4","-f","Gazebo","-v","ArduCopter"])
-
     def _pause(self, msg):
         programPause = raw_input(str(msg))
 
@@ -91,14 +87,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         # Launch the simulation with the given launchfile name
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
-        self.action_space = spaces.Discrete(4) # F, L, R, B
-
-        self.targetx = randint(0,10)
-        self.targety = randint(0,10)
-
+        self.targetx = randint(-10,10)
+        self.targety = 0
         self.max_distance = 1.6
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
+        rospy.Subscriber('/mavros/local_position/velocity', TwistStamped, callback=self.vel_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -140,6 +134,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self._seed()
 
         self.cur_pose = PoseStamped()
+	self.cur_vel = TwistStamped()
 
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
@@ -164,6 +159,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def pos_cb(self,msg):
         self.cur_pose = msg
         self.new_pose = True
+
+    def vel_cb(self,msg):
+        self.cur_vel = msg
 
     def state_cb(self,msg):
         self.state = msg
@@ -232,7 +230,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return self.depth_image
 
     def observe_test(self):
-        return [self.cur_pose.pose.position.x,self.cur_pose.pose.position.y,self.targetx,self.targety]
+        return [self.cur_pose.pose.position.x,self.targetx]
     
     def wait_until_start(self):
         while True:
@@ -255,7 +253,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	modelstate.model_name = "f450"
 	modelstate.pose.position.x = 0
 	modelstate.pose.position.y = 0
-	modelstate.pose.position.z = 2
+	modelstate.pose.position.z = 0
 	self.model_state(modelstate)
 
     def _seed(self, seed=None):
@@ -274,20 +272,17 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
 	    self.hard_reset()
-	    self.old_reward = -10
-        if reward >= 1:
+        if reward == 10:
 	    print "GOAL"
             done = True
             self.steps = 0
 	    self.successes += 1
-	    reward = reward + 1
         if self.steps >= self.max_episode_length:
 	    print "MAXOUT"
             done = True
             self.steps = 0
-	    self.old_reward = -10
 	    self.reset_model()
-	    reward = reward -1
+	    reward = reward -2
         return done,reward
 
     def _step(self, action):
@@ -296,40 +291,36 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if action == 0: #HOLD
             self.x_vel = 0
         elif action == 1: #RIGHT
-            self.x_vel = -2
+            self.x_vel = -1
         elif action == 2: #LEFT
-            self.x_vel = 2
-        elif action == 3: #Forward
-            self.y_vel = 2
-        elif action == 4: #Reverse
-            self.y_vel = -2
-	elif action == 5:
-	    self.y_vel = 0
+            self.x_vel = 1
 
         self.rate.sleep()
-        observation = self.observe_test()
-        reward = self.get_state_reward()
+	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
+	#    self.rate.sleep()
+        observation = self.observe()
+        reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
 
         if done:
-            self.targetx = randint(0,10)
-            self.targety = randint(0,10)
-            print "TARGET: ",self.targetx,self.targety
+            self.targetx = randint(-10,10)
         self.pause_sim = 1
         return observation, reward,done,{}
 
     def sigmoid(self,x):
         return (1 / (1 + math.exp(-x)))*2
 
-    def get_reward(self):
-        #Returns distance from target normalized to -1 to 0 with a reward of 1 for hitting the goal 
-	#DEPRECATED
-	raw = math.sqrt((self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2)
-	if raw < 0.1:
-	   return 1.0
+    def get_reward(self,action):
+	raw = .2/abs(self.targetx-self.cur_pose.pose.position.x)
+	direction = self.targetx-self.cur_pose.pose.position.x
+	if raw >=1:
+	    return 10
 	else:
-           return -1.0 + -1* self.sigmoid(raw)
+	    if action ==1 and direction < 0 or action==2 and direction > 0:
+		return -0.001
+	    else:
+	        return -.01
 
     def collect_reward(self):
 	#Returns a -1 if moving futher away and a +1 if moving closer.It will return 10 if it hits goal
@@ -344,8 +335,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    return diff* -1
 
     def get_state_reward(self):
-        raw = .2/math.sqrt((self.targetx - self.cur_pose.pose.position.x)**2 + (self.targety - self.cur_pose.pose.position.y)**2)
-	return raw
+	raw = .2/abs(self.targetx-self.cur_pose.pose.position.x)
+	if raw >=1:
+	    return 10
+	else:
+	    return -.01
 
 
     def _killall(self, process_name):
@@ -359,6 +353,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def hard_reset(self):
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
+        self.reset_model()
         rospy.wait_for_service('/gazebo/reset_world')
         try:
             self.reset_proxy()
