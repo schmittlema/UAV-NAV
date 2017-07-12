@@ -117,16 +117,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.stereo = cv2.StereoBM_create(16,50)
         self.depth_image = False
 	
-        self._seed()
-
         self.cur_pose = PoseStamped()
-	self.cur_vel = TwistStamped()
 
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 0
         self.pose.pose.position.z = 2
-
 
         self.started = False
         self.rate = rospy.Rate(10)
@@ -136,8 +132,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.new_pose = False
         self.steps = 0
         self.max_episode_length = 200
-	self.old_reward = -10
         self.direction = 0
+        self.target = 0
 
 
     def pos_cb(self,msg):
@@ -153,14 +149,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    counter = counter -1
  	    time.sleep(1)
         
-
+        self.reset_random(0)
         self.get_data()
+
         self._takeoff()
         self.nowait = False
 
         print "Main Running"
         while not rospy.is_shutdown():
-            self.local_pose.publish(self.determine_direction(self.pose))
+            self.local_pos.publish(self.determine_direction(self.pose))
             self.rate.sleep()
             self.pauser()
 
@@ -172,7 +169,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             pose.pose.orientation.w = 1
         if self.direction == 1:
             pose.pose.orientation.x = 0
-            ppose.ose.orientation.y = 0
+            pose.pose.orientation.y = 0
             pose.pose.orientation.z = .707
             pose.pose.orientation.w = .707
         if self.direction == 2:
@@ -234,15 +231,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             except:
                 pass
 
-    def reset_model(self):
-	modelstate = ModelState()
-	modelstate.model_name = "f450"
-	modelstate.pose.position.x = 0
-	modelstate.pose.position.y = 0
-	modelstate.pose.position.z = 0
-	self.model_state(modelstate)
-
-    def reset_random(self):
+    def reset_random(self,alt):
 	modelstate = ModelState()
 	modelstate.model_name = "f450"
         num = randint(0,3)
@@ -259,8 +248,45 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             modelstate.pose.position.x = -24
             modelstate.pose.position.y = 26
         
-	modelstate.pose.position.z = 2
-	self.model_state(modelstate)
+        tar = randint(0,1)
+        loc = num
+        if loc == 0:
+            if tar == 0:
+                self.target = 1
+                self.direction = 2
+            else:
+                self.direction = 1
+                self.target = 2
+        if loc == 1:
+            if tar == 0:
+                self.direction = 0
+                self.target = 0
+            else:
+                self.direction = 1
+                self.target = 3
+        if loc == 2:
+            if tar == 0:
+                self.direction = 3
+                self.target = 0
+            else:
+                self.direction = 2
+                self.target = 3
+        if loc == 3:
+            if tar == 0:
+                self.direction = 3
+                self.target = 1
+            else:
+                self.direction = 0
+                self.target = 2
+        self.direction = 0
+
+	modelstate.pose.position.z = alt
+        self.pose.pose.position.y = modelstate.pose.position.y
+        self.pose.pose.position.x = modelstate.pose.position.x
+	self.model_state(self.determine_direction(modelstate))
+        print "target: ",self.target
+        print "direction " ,self.direction
+        print "location " ,loc
 
     def detect_crash(self):
         if self.cur_pose.pose.position.z < 0.3:
@@ -279,33 +305,32 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
 	    self.successes += 1
+            self.reset_random(2)
         if self.steps >= self.max_episode_length:
 	    print "MAXOUT"
             done = True
             self.steps = 0
-	    self.reset_model()
 	    reward = reward -2
+            self.reset_random(2)
         return done,reward
 
     def _step(self, action):
         self.steps += 1
         self.pause_sim = 0
-        self.direction = 0
-        if action == 0: #HOLD
+        #if action == 0: #HOLD
             #TODO
-            self.direction = 0
-        elif action == 1: #RIGHT
+        #elif action == 1: #RIGHT
             #TODO
-            self.direction = 0
-        elif action == 2: #LEFT
+        #elif action == 2: #LEFT
             #TODO
-            self.direction = 0
 
         self.rate.sleep()
         observation = self.observe()
         reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
+        #FIX ME
+        reward = 1
 
         if done:
             self.targetx = randint(-10,10)
@@ -317,7 +342,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self,action):
-        print "hi"
+        return 1
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
@@ -330,7 +355,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def hard_reset(self):
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
-        self.reset_model()
+        self.reset_random(0)
 
         self.started = False
         self.new_pose = False
