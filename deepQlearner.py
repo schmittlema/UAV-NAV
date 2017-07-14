@@ -27,7 +27,7 @@ n_nodes_h3 = 5
 
 #I mean actions
 n_classes = 3
-input_size = 2
+input_size = 1
 
 buff_size = 1000000
 batch_size = 32 #How many experiences to use for each training step.
@@ -51,25 +51,10 @@ class Qnetwork():
         #The network recieves a frame from the game, flattened into an array.
         #It then resizes it and processes it through four convolutional layers.
 	self.data = tf.placeholder('float',[None,input_size],name="input") #input data
-	with tf.name_scope("layer1"):
-		hidden_1_layer = {'weights':tf.Variable(tf.random_normal([input_size,n_nodes_h1]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h1]),name="B")}
-		l1 = tf.add(tf.matmul(self.data,hidden_1_layer['weights']),hidden_1_layer['biases'])
-		l1 = tf.nn.relu(l1)
-
-	with tf.name_scope("layer2"):
-		hidden_2_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h1,n_nodes_h2]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h2]),name="B")}
-		l2 = tf.add(tf.matmul(l1,hidden_2_layer['weights']),hidden_2_layer['biases'])
-		l2 = tf.nn.relu(l2)
-    
-	with tf.name_scope("layer3"):
-		hidden_3_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h2,n_nodes_h3]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h3]),name="B")}
-		l3 = tf.add(tf.matmul(l2,hidden_3_layer['weights']),hidden_3_layer['biases'])
-		l3 = tf.nn.relu(l3)
-
 	with tf.name_scope("output_layer"):
-		output_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h3,n_classes]),name="W"),'biases':tf.Variable(tf.random_normal([n_classes]),name="B")}
+		output_layer = {'weights':tf.Variable(tf.random_normal([input_size,n_classes]),name="W"),'biases':tf.Variable(tf.random_normal([n_classes]),name="B")}
     
-    	self.Qout = tf.add(tf.matmul(l3,output_layer['weights']),output_layer['biases'])
+    	self.Qout = tf.add(tf.matmul(self.data,output_layer['weights']),output_layer['biases'])
 		
 		#Max q val (best action)
         self.predict = tf.argmax(self.Qout,1)
@@ -210,6 +195,7 @@ def main():
 
                 #Periodically save the model. 
 		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes)])
+                env.env.successes = 0
 		summury = sess.run(merged_summary)
 		writer.add_summary(summury,i)
 		writer.flush()
