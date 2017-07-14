@@ -131,7 +131,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.y_vel = 0
 	
 	self.successes = 0
-        self.current_position = ModelState()
 
 
         self.stereo = cv2.StereoBM_create(16,50)
@@ -187,8 +186,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         print "Main Running"
         while not rospy.is_shutdown():
-            self.get_state()
-            des_vel = vController.update(self.current_position,self.x_vel,self.y_vel,self.current_position)
+            des_vel = vController.update(self.cur_pose,self.x_vel,self.y_vel,self.cur_pose)
             self.local_vel.publish(des_vel)
             self.rate.sleep()
             self.pauser()
@@ -237,8 +235,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return self.depth_image
 
     def observe_test(self):
-        rospy.wait_for_service('mavros/set_mode')
-        return [self.current_position.pose.position.x - self.targetx]
+        rospy.wait_for_service('gazebo/get_model_state')
+        return [self.get_state().position.x - self.targetx]
     
     def wait_until_start(self):
         while True:
@@ -265,7 +263,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	self.model_state(modelstate)
 
     def get_state(self):
-        self.current_position = self.cur_state("f450","world")
+        return self.cur_state("f450","world").pose
 
     def _seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -278,14 +276,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def detect_done(self,reward):
         done = False
-        dist_to_goal = abs(self.targetx-self.current_position.pose.position.x)
         if self.detect_crash():
 	    print "CRASH"
             done = True
             self.steps = 0
 	    self.hard_reset()
 	    self.old_reward = -10
-        if dist_to_goal < .3:
+        if reward == 10:
 	    print "GOAL"
             done = True
             self.steps = 0
@@ -297,11 +294,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    self.old_reward = -10
 	    self.reset_model()
             print self.cur_pose.pose.position
+	    reward = reward -2
         return done,reward
 
     def _step(self, action):
         self.steps += 1
         self.pause_sim = 0 
+        action = 1
         if action == 0: #HOLD
             self.x_vel = 0
         elif action == 1: #RIGHT
@@ -313,6 +312,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
 	#    self.rate.sleep()
         observation = self.observe_test()
+        print observation
         reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
@@ -327,11 +327,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self,action):
-        direction = self.targetx-self.current_position.pose.position.x
-        if action ==1 and direction < 0 or action==2 and direction > 0:
-            return 1
-        else:
-            return -1
+	raw = .2/abs(self.targetx-self.cur_pose.pose.position.x)
+	direction = self.targetx-self.cur_pose.pose.position.x
+	if raw >=1:
+	    return 10
+	else:
+	    if action ==1 and direction < 0 or action==2 and direction > 0:
+		return -0.001
+	    else:
+	        return -.01
 
     def collect_reward(self):
 	#Returns a -1 if moving futher away and a +1 if moving closer.It will return 10 if it hits goal
