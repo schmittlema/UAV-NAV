@@ -184,6 +184,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.get_data()
         self._takeoff()
         self.nowait = False
+        self.reset_target_model()
 
         print "Main Running"
         while not rospy.is_shutdown():
@@ -264,6 +265,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	modelstate.pose.position.z = 2
 	self.model_state(modelstate)
 
+    def reset_target_model(self):
+	modelstate = ModelState()
+	modelstate.model_name = "target"
+	modelstate.pose.position.x = self.targetx
+	modelstate.pose.position.y = 0
+	modelstate.pose.position.z = 0
+	self.model_state(modelstate)
+
     def get_state(self):
         self.current_position = self.cur_state("f450","world")
 
@@ -296,7 +305,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
 	    self.old_reward = -10
 	    self.reset_model()
-            print self.cur_pose.pose.position
         return done,reward
 
     def _step(self, action):
@@ -305,9 +313,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if action == 0: #HOLD
             self.x_vel = 0
         elif action == 1: #RIGHT
-            self.x_vel = -1
+            self.x_vel = -1.5
         elif action == 2: #LEFT
-            self.x_vel = 1
+            self.x_vel = 1.5
 
         self.rate.sleep()
 	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
@@ -320,6 +328,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if done:
             self.targetx = randint(-10,10)
             print "TARGET: ",self.targetx
+            self.reset_target_model()
         self.pause_sim = 1
         return observation, reward,done,{}
 
