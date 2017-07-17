@@ -233,7 +233,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def reset_random(self,alt):
 	modelstate = ModelState()
-	modelstate.model_name = "f450"
+	modelstate.model_name = "f450-stereo"
         num = randint(0,3)
         if num == 0:
             modelstate.pose.position.x = 25

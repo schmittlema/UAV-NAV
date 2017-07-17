@@ -179,6 +179,7 @@ def main():
                     else:
                         a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
                     s1,r,d,info = env.step(a)
+                    print s1.shape
                     total_steps += 1
                     episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
                     
