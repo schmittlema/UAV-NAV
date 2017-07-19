@@ -15,7 +15,7 @@ from gym.utils import seeding
 from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
 from sensor_msgs.msg import LaserScan, NavSatFix
 from std_msgs.msg import Float64;
-from gazebo_msgs.msg import ModelStates,ModelState
+from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
 from gazebo_msgs.srv import SetModelState
 
 from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
@@ -72,7 +72,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.rate.sleep()
             timeout -= 1 
             if timeout < 0:
-                self._reset()
+                self.reset_proxy()
                 timeout = 150
 
         self.started = True
@@ -109,6 +109,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         rospy.Subscriber('camera/depth/image_raw',Image,self.callbackdepth)
 
+        rospy.Subscriber('/bumper_rotor0',ContactsState,self.callbackrotor)
+        rospy.Subscriber('/bumper_rotor1',ContactsState,self.callbackrotor)
+        rospy.Subscriber('/bumper_rotor2',ContactsState,self.callbackrotor)
+        rospy.Subscriber('/bumper_rotor3',ContactsState,self.callbackrotor)
+
         self.state = ""
 	
 	self.successes = 0
@@ -121,7 +126,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 0
+        self.pose.pose.position.y = 20
         self.pose.pose.position.z = 2
 
         self.started = False
@@ -149,7 +154,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    counter = counter -1
  	    time.sleep(1)
         
-        self.reset_random(0)
+        #self.reset_random(0)
         self.get_data()
 
         self._takeoff()
@@ -211,6 +216,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.depth_image = np.array(self.depth_image, dtype=np.uint8)
         cv2.normalize(self.depth_image,self.depth_image,1,255,cv2.NORM_MINMAX)
         #self.depth_image = self.depth_image * 50
+
+    def callbackrotor(self,data):
+        if len(data.states) > 0:
+            if data.states[0].collision2_name != "":
+                #print data.states[0].collision2_name
+                self.reset_proxy()
 
     def observe(self):
         return self.depth_image
@@ -305,13 +316,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
 	    self.successes += 1
-            self.reset_random(2)
+            #self.reset_random(2)
         if self.steps >= self.max_episode_length:
 	    print "MAXOUT"
             done = True
             self.steps = 0
 	    reward = reward -2
-            self.reset_random(2)
+            self.reset_proxy()
+            #self.reset_random(2)
         return done,reward
 
     def _step(self, action):
@@ -353,9 +365,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return self.observe()
 
     def hard_reset(self):
+        self.reset_proxy()
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
-        self.reset_random(0)
+        #self.reset_random(0)
 
         self.started = False
         self.new_pose = False
