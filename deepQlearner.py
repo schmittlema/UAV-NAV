@@ -39,7 +39,7 @@ anneling_steps = 500000 #How many steps of training to reduce startE to endE.
 num_episodes = 10000 #How many episodes of game environment to train network with.
 max_epLength = 200 #The max allowed length of our episode.
 load_model = False #Whether to load a saved model.
-path = "../log/logfile-exp-6" #The path to save our model to.
+path = "../log/logfile-exp-7" #The path to save our model to.
 h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
@@ -210,6 +210,7 @@ def main():
 
                 #Periodically save the model. 
 		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes)])
+		env.env.successes = 0
 		summury = sess.run(merged_summary)
 		writer.add_summary(summury,i)
 		writer.flush()

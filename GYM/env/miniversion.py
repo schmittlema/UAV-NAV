@@ -50,35 +50,28 @@ gzclient_pid = 0
 
 local_pos = rospy.Publisher('mavros/setpoint_position/local',PoseStamped,queue_size=10)
 
-#raw_pos = rospy.Publisher('mavros/setpoint_raw/local',PositionTarget, queue_size=10)
+raw_pos = rospy.Publisher('mavros/setpoint_raw/local',PositionTarget, queue_size=10)
 
 mode_proxy = rospy.ServiceProxy('mavros/set_mode', SetMode)
 
 arm_proxy = rospy.ServiceProxy('mavros/cmd/arming', CommandBool)
 
-takeoff_proxy = rospy.ServiceProxy('mavros/cmd/takeoff', CommandTOL)
-
-vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
-
 pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=pos_cb)
 
-start_pos = PoseStamped()
-start_pos.pose.position.x = 0
-start_pos.pose.position.y = 0
-start_pos.pose.position.z = 10
-
-target = Pose()
-target.position.x = 0
-target.position.y = 0
-target.position.z = 10
-
-vController = VelocityController()
-vController.setTarget(target)
-
-x_vel = -2
-y_vel = 0
-
 #Setting rpos
+target = PositionTarget()
+target.header.frame_id = "home"
+target.header.stamp = rospy.Time.now()
+target.coordinate_frame = 1
+target.type_mask = 4067
+
+#target.position.x = 0
+#target.position.y = 0
+target.position.z = 5
+target.velocity.x = 2
+target.velocity.y = 0
+#target.yaw = 0
+
 print "Waiting for mavros..."
 data = None
 while data is None:
@@ -91,7 +84,7 @@ rospy.wait_for_service('mavros/set_mode')
 print "got service"
 
 for i in range(0,100):
-    local_pos.publish(start_pos)
+    raw_pos.publish(target)
 
 #setup offboard
 try:
@@ -115,7 +108,5 @@ except rospy.ServiceException, e:
 rate = rospy.Rate(10)
 print "Main Running"
 while not rospy.is_shutdown():
-    #des_vel = vController.update(cur_pose,x_vel,y_vel)
-    #vel_pub.publish(des_vel)
-    local_pos.publish(start_pos)
+    raw_pos.publish(target)
     rate.sleep()

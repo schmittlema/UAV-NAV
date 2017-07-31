@@ -297,9 +297,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if action == 0: #HOLD
             self.x_vel = 0
         elif action == 1: #RIGHT
-            self.x_vel = -1
+            self.x_vel = -2
         elif action == 2: #LEFT
-            self.x_vel = 1
+            self.x_vel = 2
 
         self.rate.sleep()
 	#while abs(self.cur_vel.twist.linear.x - self.x_vel) > 0.1:
