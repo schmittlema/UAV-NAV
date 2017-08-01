@@ -49,7 +49,7 @@
         <pose frame=''>0 0 0 0 -0 0</pose>
         <geometry>
           <mesh>
-              <uri>model://f450/meshes/f450.dae</uri>
+            <uri>model://f450/meshes/f450.dae</uri>
           </mesh>
         </geometry>
         <surface>
@@ -89,15 +89,6 @@
           </contact>
         </surface>
       </collision>
-      <sensor name='contact_sensor' type='contact'>
-          <contact>
-              <collision>base_link_inertia_collision</collision>
-          </contact>
-          <plugin name="bumper" filename="libgazebo_ros_bumper.so">
-            <bumperTopicName>bumper</bumperTopicName>
-            <frameName>base_link</frameName>
-          </plugin>
-      </sensor>
     </link>
     <link name='/imu_link'>
       <pose frame=''>0 0 0 0 -0 0</pose>
@@ -133,48 +124,115 @@
       </inertial>
       <self_collide>0</self_collide>
       <kinematic>0</kinematic>
-         <sensor type="depth" name="openni_camera">       
-        <always_on>1</always_on>
-        <visualize>true</visualize>             
-        <camera>
-            <horizontal_fov>1.047</horizontal_fov>  
-            <image>
-                <width>640</width>
-                <height>480</height>
-                <format>R8G8B8</format>
-            </image>
-            <depth_camera>
-
-            </depth_camera>
-            <clip>
-                <near>0.1</near>
-                <far>100</far>
-            </clip>
-        </camera>
-        <plugin name="camera_controller" filename="libgazebo_ros_depth_camera.so">
-            <alwaysOn>true</alwaysOn>
-                <updateRate>10.0</updateRate>
-                <cameraName>camera</cameraName>
-                <frameName>openni_camera_link</frameName>                   
-            <imageTopicName>rgb/image_raw</imageTopicName>
-            <depthImageTopicName>depth/image_raw</depthImageTopicName>
-            <pointCloudTopicName>depth/points</pointCloudTopicName>
-            <cameraInfoTopicName>rgb/camera_info</cameraInfoTopicName>              
-            <depthImageCameraInfoTopicName>depth/camera_info</depthImageCameraInfoTopicName>            
-            <pointCloudCutoff>0.4</pointCloudCutoff>                
-                <hackBaseline>0.07</hackBaseline>
-                <distortionK1>0.0</distortionK1>
-                <distortionK2>0.0</distortionK2>
-                <distortionK3>0.0</distortionK3>
-                <distortionT1>0.0</distortionT1>
-                <distortionT2>0.0</distortionT2>
-            <CxPrime>0.0</CxPrime>
-            <Cx>0.0</Cx>
-            <Cy>0.0</Cy>
-            <focalLength>0.0</focalLength>
-            </plugin>
+     <sensor type="multicamera" name="stereo_camera">
+      <update_rate>30.0</update_rate>
+      <camera name="left">
+        <horizontal_fov>1.3962634</horizontal_fov>
+        <image>
+          <width>800</width>
+          <height>800</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.02</near>
+          <far>300</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.007</stddev>
+        </noise>
+      </camera>
+      <camera name="right">
+        <pose>0 -0.07 0 0 0 0</pose>
+        <horizontal_fov>1.3962634</horizontal_fov>
+        <image>
+          <width>800</width>
+          <height>800</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.02</near>
+          <far>300</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.007</stddev>
+        </noise>
+      </camera>
+      <plugin name="stereo_camera_controller" filename="libgazebo_ros_multicamera.so">
+        <alwaysOn>true</alwaysOn>
+        <updateRate>0.0</updateRate>
+        <cameraName>stereo</cameraName>
+        <imageTopicName>image_raw</imageTopicName>
+        <cameraInfoTopicName>camera_info</cameraInfoTopicName>
+        <frameName>/stereo_optical_frame</frameName>
+        <!--<rightFrameName>right_camera_optical_frame</rightFrameName>-->
+        <hackBaseline>0.07</hackBaseline>
+        <distortionK1>0.0</distortionK1>
+        <distortionK2>0.0</distortionK2>
+        <distortionK3>0.0</distortionK3>
+        <distortionT1>0.0</distortionT1>
+        <distortionT2>0.0</distortionT2>
+      </plugin>
     </sensor>
-     <visual name='visual'>
+<visual name='visual'>
+        <geometry>
+          <box>
+            <size>0.001 0.001 0.001</size>
+          </box>
+        </geometry>
+        <pose frame=''>0 0 0 0 -0 0</pose>
+        <cast_shadows>1</cast_shadows>
+        <transparency>0</transparency>
+        <material>
+          <shader type='pixel'/>
+        </material>
+      </visual>
+    </link>
+    <link name='f450-stereo/robot_sonar_down'>
+      <pose frame=''>-0.15 0 0.01 -9.4e-05 1.57079 -9.4e-05</pose>
+      <inertial>
+        <pose frame=''>0 0 0 0 -0 0</pose>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>1e-06</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>1e-06</iyy>
+          <iyz>0</iyz>
+          <izz>1e-06</izz>
+        </inertia>
+      </inertial>
+      <self_collide>0</self_collide>
+      <kinematic>0</kinematic>
+      <sensor name='sonar' type='ray'>
+        <always_on>1</always_on>
+        <update_rate>100</update_rate>
+        <ray>
+          <range>
+            <min>0.2</min>
+            <max>40</max>
+            <resolution>0.01</resolution>
+          </range>
+          <scan>
+            <horizontal>
+              <samples>100</samples>
+              <min_angle>-3</min_angle>
+              <max_angle>3</max_angle>
+              <resolution>1</resolution>
+            </horizontal>
+          </scan>
+        </ray>
+        <plugin name='gazebo_ros_sonar_controller' filename='libhector_gazebo_ros_sonar.so'>
+          <gaussianNoise>0.02</gaussianNoise>
+          <topicName>sonar</topicName>
+          <frameId>sonar_link</frameId>
+          <robotNamespace>/</robotNamespace>
+        </plugin>
+      </sensor>
+      <visual name='visual'>
         <geometry>
           <box>
             <size>0.001 0.001 0.001</size>
@@ -274,14 +332,6 @@
           </contact>
         </surface>
       </collision>
-      <sensor name='contact_sensor_rotor_0' type='contact'>
-          <contact>
-              <collision>rotor_0_collision</collision>
-          </contact>
-          <plugin name="bumper_rotor0" filename="libgazebo_ros_bumper.so">
-            <bumperTopicName>bumper_rotor0</bumperTopicName>
-          </plugin>
-      </sensor>
     </link>
     <link name='rotor_1'>
       <pose frame=''>-0.159 0.159 0.11 0 -0 0</pose>
@@ -369,14 +419,6 @@
           </contact>
         </surface>
       </collision>
-      <sensor name='contact_sensor_rotor_1' type='contact'>
-          <contact>
-              <collision>rotor_1_collision</collision>
-          </contact>
-          <plugin name="bumper_rotor1" filename="libgazebo_ros_bumper.so">
-            <bumperTopicName>bumper_rotor1</bumperTopicName>
-          </plugin>
-      </sensor>
     </link>
     <link name='rotor_2'>
       <pose frame=''>0.159 0.159 0.11 0 -0 0</pose>
@@ -464,14 +506,6 @@
           </contact>
         </surface>
       </collision>
-      <sensor name='contact_sensor_rotor_2' type='contact'>
-          <contact>
-              <collision>rotor_2_collision</collision>
-          </contact>
-          <plugin name="bumper_rotor2" filename="libgazebo_ros_bumper.so">
-            <bumperTopicName>bumper_rotor2</bumperTopicName>
-          </plugin>
-      </sensor>
     </link>
     <link name='rotor_3'>
       <pose frame=''>-0.159 -0.159 0.11 0 -0 0</pose>
@@ -559,14 +593,6 @@
           </contact>
         </surface>
       </collision>
-      <sensor name='contact_sensor_rotor_3' type='contact'>
-          <contact>
-              <collision>rotor_3_collision</collision>
-          </contact>
-          <plugin name="bumper_rotor3" filename="libgazebo_ros_bumper.so">
-            <bumperTopicName>bumper_rotor3</bumperTopicName>
-          </plugin>
-      </sensor>
     </link>
     <joint name='/imu_joint' type='revolute'>
       <parent>base_link</parent>
@@ -604,6 +630,38 @@
     <joint name='f450-stereo/down_cam_joint' type='revolute'>
       <parent>base_link</parent>
       <child>f450-stereo/robot_camera_down</child>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <use_parent_model_frame>1</use_parent_model_frame>
+        <limit>
+          <lower>0</lower>
+          <upper>0</upper>
+          <effort>0</effort>
+          <velocity>0</velocity>
+        </limit>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+          <damping>0</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+      <physics>
+        <ode>
+          <limit>
+            <cfm>0</cfm>
+            <erp>0.2</erp>
+          </limit>
+          <suspension>
+            <cfm>0</cfm>
+            <erp>0.2</erp>
+          </suspension>
+        </ode>
+      </physics>
+    </joint>
+    <joint name='f450-stereo/down_sonar_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>f450-stereo/robot_sonar_down</child>
       <axis>
         <xyz>1 0 0</xyz>
         <use_parent_model_frame>1</use_parent_model_frame>

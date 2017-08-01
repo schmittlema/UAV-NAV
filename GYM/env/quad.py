@@ -24,7 +24,7 @@ from std_srvs.srv import Empty
 from VelocityController import VelocityController
 
 #For Stereo
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image,PointCloud2
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
 import matplotlib.pyplot as plt
@@ -104,6 +104,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.mode_proxy = rospy.ServiceProxy('mavros/set_mode', SetMode)
 
         self.arm_proxy = rospy.ServiceProxy('mavros/cmd/arming', CommandBool)
+
+        rospy.Subscriber('/voxel_grid/output',PointCloud2,callback=self.callback_voxel)
         
         self.bridge = CvBridge()
 
@@ -147,6 +149,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def state_cb(self,msg):
         self.state = msg
+
+    def callback_voxel(self,msg):
+        print msg.data
 
     def start(self):
 	counter = 15

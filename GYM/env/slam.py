@@ -1,0 +1,108 @@
+import gym
+import numpy as np
+import os
+import rospy
+import roslaunch
+import subprocess
+import time
+import math
+from random import randint
+
+from gym import utils, spaces
+import gazebo_env
+from gym.utils import seeding
+
+from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
+from sensor_msgs.msg import LaserScan, NavSatFix
+from std_msgs.msg import Float64;
+from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
+from gazebo_msgs.srv import SetModelState
+
+from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
+from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
+from std_srvs.srv import Empty
+from VelocityController import VelocityController
+from nav_msgs.msg import OccupancyGrid, MapMetaData
+
+class Slam():
+    def __init__(self):
+        # Connect to map
+        rospy.init_node('slam', anonymous=True)
+        
+	self.local_pos = rospy.Publisher('mavros/setpoint_position/local',PoseStamped,queue_size=10)
+
+        self.mode_proxy = rospy.ServiceProxy('mavros/set_mode', SetMode)
+
+        rospy.Subscriber('/rtabmap/grid_map',OccupancyGrid,self.call_map)
+        rospy.Subscriber('/stereo_odometer/pose',PoseStamped,self.call_pose)
+
+	self.map_publisher = rospy.Publisher('/slam/map',OccupancyGrid,queue_size=10)
+
+        self.rate = rospy.Rate(10)
+        self.map = OccupancyGrid()
+        self.pose = PoseStamped()
+        self.tlibrary = self.read_dictionary()
+        
+        #Temporary
+        self.test_pose = PoseStamped()
+        self.test_pose.pose.position.x = .5
+        self.test_pose.pose.position.y = -.15
+        self.test_pose.pose.position.z = 0.1
+
+    def call_map(self,msg):
+        rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
+        bubble = self.add_bubble(self.pose)
+        msg.data = np.reshape(np.array(msg.data),(-1,msg.info.width))
+        for b in bubble:
+            try:
+                msg.data[b[1]][b[0]] = 0
+            except IndexError:
+                pass
+        msg.data = msg.data.flatten()
+        self.map = msg
+
+    def call_pose(self,msg):
+        self.pose = msg
+
+    def read_dictionary(self):
+        library = []
+        with open('trajectory_library.txt','r') as infile:
+            for line in infile:
+                if line[0] == "{":
+                    library.append(eval(line))
+        return library
+
+    def convert_to_local_frame(self,input_pos):
+        output_pos = PoseStamped()
+        output_pos.pose.position.x = input_pos.pose.position.x + self.pose.pose.position.x
+        output_pos.pose.position.y = input_pos.pose.position.y + self.pose.pose.position.y
+        output_pos.pose.position.z = input_pos.pose.position.z + self.pose.pose.position.z
+        return output_pos
+
+    def convert_to_grid_cells(self,input_pos):
+        rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
+        resolution = max(self.map.info.resolution,0.04)
+        origin = self.map.info.origin
+        cell_x = int((input_pos.pose.position.x - origin.position.x)/resolution)
+        cell_y = int((input_pos.pose.position.y - origin.position.y)/resolution)
+        return [cell_x,cell_y]
+
+    def add_bubble(self,input_pos):
+        bubble = []
+        resolution = self.map.info.resolution
+        grid_pos = self.convert_to_grid_cells(input_pos)
+        radius = 0.3556
+        input_pos.pose.position.x = input_pos.pose.position.x + radius
+        s1 = self.convert_to_grid_cells(input_pos)[0]
+        input_pos.pose.position.x = input_pos.pose.position.x - 2*radius
+        s2 = self.convert_to_grid_cells(input_pos)[0]
+
+        input_pos.pose.position.y = input_pos.pose.position.y + radius
+        s3 = self.convert_to_grid_cells(input_pos)[1]
+        input_pos.pose.position.y = input_pos.pose.position.y - 2*radius
+        s4 = self.convert_to_grid_cells(input_pos)[1]
+        for x in range(s2,s1):
+            for y in range(s4,s3):
+                bubble.append([x,y])
+        return bubble 
+
