@@ -29,15 +29,13 @@ class Slam():
     def __init__(self):
         # Connect to map
         rospy.init_node('slam', anonymous=True)
-        
-	self.local_pos = rospy.Publisher('mavros/setpoint_position/local',PoseStamped,queue_size=10)
-
-        self.mode_proxy = rospy.ServiceProxy('mavros/set_mode', SetMode)
 
         rospy.Subscriber('/rtabmap/grid_map',OccupancyGrid,self.call_map)
         rospy.Subscriber('/stereo_odometer/pose',PoseStamped,self.call_pose)
 
 	self.map_publisher = rospy.Publisher('/slam/map',OccupancyGrid,queue_size=10)
+
+        self.reset_proxy = rospy.ServiceProxy('/rtabmap/reset', Empty)
 
         self.rate = rospy.Rate(10)
         self.map = OccupancyGrid()
@@ -54,15 +52,9 @@ class Slam():
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
         bubble = self.add_bubble(self.pose)
         msg.data = np.reshape(np.array(msg.data),(-1,msg.info.width))
-        #print msg.info.width,msg.info.height
         grid_pos = self.convert_to_grid_cells(self.pose)
-        #print grid_pos
-        print "drone"
-        print self.pose.pose.position
         msg.data[grid_pos[1]][grid_pos[0]] = 50
         origin_pos = self.convert_to_origin_cells(msg.info.origin)
-        #print "map"
-        #print msg.info.origin.position
         msg.data[origin_pos[1]][origin_pos[0]] = 20
         for b in bubble:
             try:
@@ -77,10 +69,9 @@ class Slam():
         msg.data[grid_pos[1]][grid_pos[0]] = 50
         msg.data = msg.data.flatten()
         self.map = msg
+        #self.reset_proxy()
 
     def call_pose(self,msg):
-        print "msg"
-        print msg.pose.position
         self.pose = msg
     
     def flatten_dictionary(self,dictionary):

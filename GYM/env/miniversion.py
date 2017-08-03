@@ -32,7 +32,7 @@ def pos_cb(msg):
     global cur_pose
     cur_pose = msg
 
-#Setup
+Setup
 launchfile = "mpsl.launch"
 subprocess.Popen("roscore")
 print ("Roscore launched!")
@@ -44,9 +44,6 @@ fullpath = os.path.join(os.path.dirname(__file__),"launch", launchfile)
 
 subprocess.Popen(["roslaunch",fullpath])
 print ("Gazebo launched!")
-
-gzclient_pid = 0
-
 
 local_pos = rospy.Publisher('mavros/setpoint_position/local',PoseStamped,queue_size=10)
 
@@ -71,6 +68,7 @@ target = Pose()
 target.position.x = 0
 target.position.y = 0
 target.position.z = 10
+
 
 vController = VelocityController()
 vController.setTarget(target)
