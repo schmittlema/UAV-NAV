@@ -127,7 +127,7 @@
      <sensor type="multicamera" name="stereo_camera">
       <update_rate>30.0</update_rate>
       <camera name="left">
-        <horizontal_fov>2.3962634</horizontal_fov>
+        <horizontal_fov>1.3962634</horizontal_fov>
         <image>
           <width>800</width>
           <height>800</height>
@@ -145,7 +145,7 @@
       </camera>
       <camera name="right">
         <pose>0 -0.07 0 0 0 0</pose>
-        <horizontal_fov>2.3962634</horizontal_fov>
+        <horizontal_fov>1.3962634</horizontal_fov>
         <image>
           <width>800</width>
           <height>800</height>

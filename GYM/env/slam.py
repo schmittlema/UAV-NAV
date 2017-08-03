@@ -7,6 +7,7 @@ import subprocess
 import time
 import math
 from random import randint
+import copy as cp
 
 from gym import utils, spaces
 import gazebo_env
@@ -53,16 +54,55 @@ class Slam():
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
         bubble = self.add_bubble(self.pose)
         msg.data = np.reshape(np.array(msg.data),(-1,msg.info.width))
+        #print msg.info.width,msg.info.height
+        grid_pos = self.convert_to_grid_cells(self.pose)
+        #print grid_pos
+        print "drone"
+        print self.pose.pose.position
+        msg.data[grid_pos[1]][grid_pos[0]] = 50
+        origin_pos = self.convert_to_origin_cells(msg.info.origin)
+        #print "map"
+        #print msg.info.origin.position
+        msg.data[origin_pos[1]][origin_pos[0]] = 20
         for b in bubble:
             try:
                 msg.data[b[1]][b[0]] = 0
             except IndexError:
                 pass
+        for d in self.convert_dictionary_to_cells(self.read_dictionary()):
+            try:
+                msg.data[d[1]][d[0]] = 0
+            except IndexError:
+                pass
+        msg.data[grid_pos[1]][grid_pos[0]] = 50
         msg.data = msg.data.flatten()
         self.map = msg
 
     def call_pose(self,msg):
+        print "msg"
+        print msg.pose.position
         self.pose = msg
+    
+    def flatten_dictionary(self,dictionary):
+        flat_array = []
+        i = 0
+        for x in dictionary:
+            for y in x:
+                flat_array.append(dictionary[i][y])
+            i+=1
+        return flat_array
+
+    def convert_dictionary_to_cells(self,dictionary):
+        array = self.flatten_dictionary(dictionary)
+        temp_pose = PoseStamped()
+        temp_pose.pose.position.z = 2
+        output_array = []
+        for a in array:
+            temp_pose.pose.position.x = a[0]
+            temp_pose.pose.position.y = a[1]
+            temp_pose = self.convert_to_local_frame(temp_pose)
+            output_array.append(self.convert_to_grid_cells(temp_pose))
+        return output_array
 
     def read_dictionary(self):
         library = []
@@ -79,6 +119,14 @@ class Slam():
         output_pos.pose.position.z = input_pos.pose.position.z + self.pose.pose.position.z
         return output_pos
 
+    def convert_to_origin_cells(self,input_pos):
+        rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
+        resolution = max(self.map.info.resolution,0.04)
+        origin = self.map.info.origin
+        cell_x = int((input_pos.position.x - origin.position.x)/resolution)
+        cell_y = int((input_pos.position.y - origin.position.y)/resolution)
+        return [cell_x,cell_y]
+
     def convert_to_grid_cells(self,input_pos):
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
         resolution = max(self.map.info.resolution,0.04)
@@ -87,7 +135,8 @@ class Slam():
         cell_y = int((input_pos.pose.position.y - origin.position.y)/resolution)
         return [cell_x,cell_y]
 
-    def add_bubble(self,input_pos):
+    def add_bubble(self,input_p):
+        input_pos = cp.deepcopy(input_p)
         bubble = []
         resolution = self.map.info.resolution
         grid_pos = self.convert_to_grid_cells(input_pos)
@@ -105,4 +154,5 @@ class Slam():
             for y in range(s4,s3):
                 bubble.append([x,y])
         return bubble 
+
 
