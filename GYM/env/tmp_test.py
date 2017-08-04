@@ -28,8 +28,8 @@ def pos_cb(msg):
     global cur_pose
     cur_pose = msg
 
-rospy.init_node('tmp_test', anonymous=True)
-#slam = Slam()
+#rospy.init_node('tmp_test', anonymous=True)
+slam = Slam()
 rate = rospy.Rate(10)
 
 vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
@@ -40,14 +40,19 @@ pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=
 
 target_position = PoseStamped()
 target = Pose()
-target.position.x = 3
-target.position.y = 0
+target.position.x = 0
+target.position.y = 3.5
 target.position.z = 2
 target_position.pose = target
+target_position.pose.orientation.x = 0
+target_position.pose.orientation.y = 0
+target_position.pose.orientation.z = 0.707 
+target_position.pose.orientation.w = 0.707
+
 
 vController = VelocityController()
 vController.setTarget(target)
-x_vel = .5
+x_vel = 0
 y_vel = 0
 
 print "Waiting for mavros..."
@@ -87,5 +92,6 @@ while not rospy.is_shutdown():
     #des_vel = vController.update(cur_pose,x_vel,y_vel,target_position)
     #vel_pub.publish(des_vel)
     local_pos.publish(target_position)
-    #slam.map_publisher.publish(slam.map)
+    print slam.check_collision(slam.seperate_dictionary(slam.tlibrary)[0])
+    slam.map_publisher.publish(slam.map)
     rate.sleep()

@@ -39,13 +39,11 @@ class Slam():
 
         self.rate = rospy.Rate(10)
         self.map = OccupancyGrid()
-        self.local_map = []
         self.pose = PoseStamped()
         self.tlibrary = self.read_dictionary()
         
     def call_map(self,msg):
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
-        rospy.wait_for_message('/stereo_odometer/pose',PoseStamped,timeout=5)
         bubble = self.add_bubble(self.pose)
         msg.data = np.reshape(np.array(msg.data),(-1,msg.info.width))
         #grid_pos = self.convert_to_grid_cells(self.pose)
@@ -57,14 +55,13 @@ class Slam():
                 msg.data[b[1]][b[0]] = 0
             except IndexError:
                 pass
-        #for d in self.convert_dictionary_to_cells(self.tlibrary):
+        #for d in self.convert_dictionary_to_cells(self.read_dictionary()):
         #    try:
         #        msg.data[d[1]][d[0]] = 0
         #    except IndexError:
         #        pass
         msg.data = msg.data.flatten()
         self.map = msg
-        self.local_map = np.reshape(np.array(self.map.data),(-1,self.map.info.width))
         #self.reset_proxy()
 
     def call_pose(self,msg):
@@ -160,15 +157,15 @@ class Slam():
         return pos
 
     def bubble_overlap(self,bubble):
-        uobst = 0.0
+        uobst = 0
         for b in bubble:
             try:
-                if (self.local_map[b[1]][b[0]] == -1 or self.local_map[b[1]][b[0]] >50):
+                if (self.map.data[b[1]][b[0]] == -1 or self.map.data[b[1]][b[0]] >50):
                     uobst = uobst +1
             except IndexError:
                 uobst+=1
         print uobst, uobst/len(bubble)
-        return uobst/float(len(bubble)) > .10
+        return uobst/len(bubble) > .10
 
     def check_collision(self,points):
         for x in points:
