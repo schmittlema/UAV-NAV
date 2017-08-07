@@ -55,6 +55,40 @@ vController.setTarget(target)
 x_vel = 0
 y_vel = 0
 
+def modify_target(trial):
+    target_position = PoseStamped()
+    target = Pose()
+    target.position.z = 2
+    target.orientation.x = 0
+    target.orientation.y = 0
+    target.orientation.z = 0.707 
+    target.orientation.w = 0.707
+
+    if trial == 0:
+	target.position.y = cur_pose.pose.position.y + .75
+	target.position.x = cur_pose.pose.position.x
+    if trial == 1:
+	target.position.y = cur_pose.pose.position.y + 0.5
+	target.position.x = cur_pose.pose.position.x - 0.5
+    if trial == 2:
+	target.position.y = cur_pose.pose.position.y + .15
+	target.position.x = cur_pose.pose.position.x - .75
+    if trial == 3:
+	target.position.y = cur_pose.pose.position.y + 0.5
+	target.position.x = cur_pose.pose.position.x + 0.5
+    if trial == 4:
+	target.position.y = cur_pose.pose.position.y + 0.15
+	target.position.x = cur_pose.pose.position.x + 0.75
+    if trial == -1:
+	target.position.y = cur_pose.pose.position.y - 0.75
+	target.position.x = cur_pose.pose.position.x 
+
+    target_position.pose = target
+    return target_position
+
+def at_target(cur,target,accuracy):
+    return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and (abs(cur.pose.position.y - target.pose.position.y) < accuracy) and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
+
 print "Waiting for mavros..."
 data = None
 while data is None:
@@ -88,10 +122,18 @@ except rospy.ServiceException, e:
 
 #Main method
 print "Main Running"
+primitives = ["forward","left","hard_left","right","hard_right","backward"]
+print target_position.pose.position
+accuracy = 0.1
 while not rospy.is_shutdown():
     #des_vel = vController.update(cur_pose,x_vel,y_vel,target_position)
     #vel_pub.publish(des_vel)
+    if at_target(cur_pose,target_position,accuracy):
+        accuracy = 0.2
+        trial = slam.auto_pilot_step(math.pi/2)
+        print primitives[trial]
+        target_position = modify_target(trial)
+       
     local_pos.publish(target_position)
-    print slam.check_collision(slam.seperate_dictionary(slam.tlibrary)[0])
     slam.map_publisher.publish(slam.map)
     rate.sleep()

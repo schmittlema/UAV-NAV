@@ -11,7 +11,7 @@
         <linear>0.01</linear>
         <quadratic>0.001</quadratic>
       </attenuation>
-      <direction>100 0.1 -10</direction>
+      <direction>100 10 -10</direction>
     </light>
     <model name='ground_plane'>
       <static>1</static>

@@ -2,7 +2,7 @@
 
     <!-- MAVROS posix SITL environment launch script -->
     <arg name="x" default="0"/>
-    <arg name="y" default="2"/>
+    <arg name="y" default="-2"/>
     <arg name="z" default="0.1"/>
     <arg name="R" default="0"/>
     <arg name="P" default="0"/>
@@ -24,7 +24,7 @@
 
     <arg name="debug" default="false"/>
     <arg name="verbose" default="false"/>
-    <arg name="paused" default="false"/>
+    <arg name="paused" default="true"/>
 
     <include file="$(find px4)/launch/posix_sitl.launch">
         <arg name="x" value="$(arg x)"/>
@@ -48,9 +48,12 @@
 
     <node pkg="tf" type="static_transform_publisher" name="stereo_optical_broadcaster" args="0.12 -0 0.06 -1.571 0 -1.571 /base_link /stereo_optical_frame 100" />
 
+    <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="hector_trajectory_server"/>
+
      <group ns="stereo">
         <node pkg="stereo_image_proc" type="stereo_image_proc" name="stereo_image_proc">
           <param name="min_disparity" type="int" value="3"/>
+          <param name="speckle_range" type="int" value="15"/>
         </node>
 
         <!-- Disparity to depth -->
