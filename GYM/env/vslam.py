@@ -104,7 +104,7 @@ class Slam():
 
     def read_dictionary(self):
         library = []
-        with open('trajectory_library.txt','r') as infile:
+        with open('vtraj_small.txt','r') as infile:
             for line in infile:
                 if line[0] == "{":
                     library.append(eval(line))
@@ -179,7 +179,8 @@ class Slam():
         return False
 
     def closest_angle(self,heading):
-        angles = {0:math.pi/2,1:(3 *math.pi)/4,2:math.pi,3:math.pi/4,4:0}
+        #angles = {0:math.pi/2,1:(3 *math.pi)/4,2:(5*math.pi)/6,3:math.pi/4,4:math.pi/6,5:math.pi,6:0}
+        angles = {0:math.pi/2,1:(3 *math.pi)/4,2:(5*math.pi)/6,3:math.pi/4,4:math.pi/6}
         for a in range(len(angles)):
             angles[a] = abs(angles[a]-heading)
         return angles

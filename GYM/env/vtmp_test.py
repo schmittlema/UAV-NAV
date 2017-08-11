@@ -1,5 +1,5 @@
 #testscript for slam
-from slam import Slam
+from vslam import Slam
 import gym
 import numpy as np
 import os
@@ -8,7 +8,6 @@ import roslaunch
 import subprocess
 import time
 import math
-import copy as cp
 
 from gym import utils, spaces
 import gazebo_env
@@ -42,7 +41,7 @@ pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=
 target_position = PoseStamped()
 target = Pose()
 target.position.x = 0
-target.position.y = 2.5
+target.position.y = 4.5
 target.position.z = 2
 target_position.pose = target
 target_position.pose.orientation.x = 0
@@ -54,9 +53,10 @@ target_position.pose.orientation.w = 0.707
 vController = VelocityController()
 vController.setTarget(target)
 x_vel = 0
-y_vel = 0
+y_vel = 0.5
 
 def modify_target(trial):
+    global y_vel
     target_position = PoseStamped()
     target = Pose()
     target.position.z = 2
@@ -66,23 +66,37 @@ def modify_target(trial):
     target.orientation.w = 0.707
 
     if trial == 0:
-	target.position.y = cur_pose.pose.position.y + .75
+	target.position.y = cur_pose.pose.position.y + .5
 	target.position.x = cur_pose.pose.position.x
+        y_vel = 0.5
     if trial == 1:
 	target.position.y = cur_pose.pose.position.y + 0.5
-	target.position.x = cur_pose.pose.position.x - 0.5
+	target.position.x = cur_pose.pose.position.x - 1.0
+        y_vel = 0.5
     if trial == 2:
-	target.position.y = cur_pose.pose.position.y + .15
-	target.position.x = cur_pose.pose.position.x - .75
+	target.position.y = cur_pose.pose.position.y + .5
+	target.position.x = cur_pose.pose.position.x - 2 
+        y_vel = 0.5
     if trial == 3:
 	target.position.y = cur_pose.pose.position.y + 0.5
-	target.position.x = cur_pose.pose.position.x + 0.5
+	target.position.x = cur_pose.pose.position.x + 1
+        y_vel = 0.5
     if trial == 4:
-	target.position.y = cur_pose.pose.position.y + 0.15
-	target.position.x = cur_pose.pose.position.x + 0.75
+	target.position.y = cur_pose.pose.position.y + 0.5
+	target.position.x = cur_pose.pose.position.x + 2 
+        y_vel = 0.5
+    if trial == 5:
+	target.position.y = cur_pose.pose.position.y + 0.5
+	target.position.x = cur_pose.pose.position.x + 4 
+        y_vel = 0.5
+    if trial == 6:
+	target.position.y = cur_pose.pose.position.y + 0.5
+	target.position.x = cur_pose.pose.position.x - 4 
+        y_vel = 0.5
     if trial == -1:
-	target.position.y = cur_pose.pose.position.y - 0.75
+	target.position.y = cur_pose.pose.position.y - 0.5
 	target.position.x = cur_pose.pose.position.x 
+        y_vel = -0.5
 
     target_position.pose = target
     return target_position
@@ -90,6 +104,11 @@ def modify_target(trial):
 def at_target(cur,target,accuracy):
     return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and (abs(cur.pose.position.y - target.pose.position.y) < accuracy) and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
 
+def at_vel_target(cur,target,accuracy,trial):
+    if trial != -1:
+        return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and cur.pose.position.y > target.pose.position.y and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
+    else:
+        return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and cur.pose.position.y < target.pose.position.y and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
 
 print "Waiting for mavros..."
 data = None
@@ -123,30 +142,30 @@ except rospy.ServiceException, e:
    print ("mavros/set_mode service call failed: %s"%e)
 
 def takeoff():
-    print "Taking off"
+    print "Takeoff Initiated!"
     rate = rospy.Rate(10)
-    target=cp.deepcopy(target_position)
-    target.pose.position.y = 0
-    while not rospy.is_shutdown() and not at_target(cur_pose,target,0.1):
-        local_pos.publish(target)
+    while not rospy.is_shutdown() and not at_target(cur_pose,target_position,0.2):
+        local_pos.publish(target_position)
         rate.sleep()
 
-
 #Main method
-primitives = ["forward","left","hard_left","right","hard_right","backward"]
-print target_position.pose.position
-accuracy = 0.1
 takeoff()
 print "Main Running"
+primitives = ["forward","left","hard_left","right","hard_right","Super_hard_left","Super_hard_right","backward"]
+print target_position.pose.position
+accuracy = 0.2
+trial = slam.auto_pilot_step(math.pi/2)
+print primitives[trial]
+target_position = modify_target(trial)
 while not rospy.is_shutdown():
-    #des_vel = vController.update(cur_pose,x_vel,y_vel,target_position)
-    #vel_pub.publish(des_vel)
-    if at_target(cur_pose,target_position,accuracy):
+    des_vel = vController.update(cur_pose,x_vel,y_vel,target_position)
+    vel_pub.publish(des_vel)
+    if at_vel_target(cur_pose,target_position,accuracy,trial):
         accuracy = 0.2
         trial = slam.auto_pilot_step(math.pi/2)
         print primitives[trial]
         target_position = modify_target(trial)
        
-    local_pos.publish(target_position)
+    #local_pos.publish(target_position)
     slam.map_publisher.publish(slam.map)
     rate.sleep()
