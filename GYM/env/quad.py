@@ -131,6 +131,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.primitives = ["forward","left","hard_left","right","hard_right","backward"]
         self.accuracy = 0.2
         self.heading = math.pi/2
+        self.old_move = PoseStamped()
+        self.old_move.pose.position.z = 2
+        self.old_move.pose.position.x = 0
+        self.old_move.pose.position.y = 0
 
     def pos_cb(self,msg):
         self.cur_pose = msg
@@ -231,9 +235,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if trial == 4:
             target.position.y = self.cur_pose.pose.position.y + 0.15
             target.position.x = self.cur_pose.pose.position.x + 0.75
+
         if trial == -1:
-            target.position.y = self.cur_pose.pose.position.y - 0.75
-            target.position.x = self.cur_pose.pose.position.x 
+            target.position.y = self.old_move.pose.position.y
+            target.position.x = self.old_move.pose.position.x
+        else:
+            self.old_move.pose.position.x = self.cur_pose.pose.position.x 
+            self.old_move.pose.position.y = self.cur_pose.pose.position.y
 
         target_position.pose = target
         return target_position

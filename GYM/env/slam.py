@@ -170,7 +170,7 @@ class Slam():
                     uobst = uobst +1
             except IndexError:
                 uobst+=1
-        return uobst/float(len(bubble)) > .05
+        return uobst/float(len(bubble)) > 0.03
 
     def check_collision(self,points):
         for x in points:
