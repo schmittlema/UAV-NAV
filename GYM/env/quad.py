@@ -310,8 +310,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.slam.flip = True
 
 
+            self.slam.reset_proxy()
+
             self.pose.pose.position.x = 0
-            self.pose.pose.position.y = 43
+            self.pose.pose.position.y = 41
             while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
                 self.rate.sleep()
             self.slam.reset_proxy()
