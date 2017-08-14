@@ -44,6 +44,7 @@ h_size = 512 #The size of the final convolutional layer before splitting it into
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
+accuracy = 0.2
 #--------------------------------------------------------------------------
 
 class Qnetwork():
@@ -172,37 +173,38 @@ def main():
 		j=0
                 #The Q-Network
                 while j < max_epLength: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
-		    j+=1
-                    #Choose an action by greedily (with e chance of random action) from the Q-network
-                    if np.random.rand(1) < e or total_steps < steps_till_training:
-                        a = np.random.randint(0,n_classes)
-                    else:
-                        a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
-                    s1,r,d,info = env.step(a)
-                    total_steps += 1
-                    episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
-                    
-                    
-                    if e > endE and total_steps > steps_till_training:
-                        e -= stepDrop
+                    if env.env.at_target(env.env.cur_pose,env.env.pose,accuracy):
+                        j+=1
+                        #Choose an action by greedily (with e chance of random action) from the Q-network
+                        if np.random.rand(1) < e or total_steps < steps_till_training:
+                            a = np.random.randint(0,n_classes)
+                        else:
+                            a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
+                        s1,r,d,info = env.step(a)
+                        total_steps += 1
+                        episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
                         
-                    if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
-                        trainBatch = myBuffer.sample(batch_size) #Get a random batch of experiences.
-                        #Below we perform the Double-DQN update to the target Q-values
-                        Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3])})
-                        Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3])})
-                        end_multiplier = -(trainBatch[:,4] - 1)
-                        doubleQ = Q2[range(batch_size),Q1]
-                        targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
-                        #Update the network with our target values.
-                        _ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]),mainQN.targetQ:targetQ, mainQN.actions:trainBatch[:,1]})
+                        
+                        if e > endE and total_steps > steps_till_training:
+                            e -= stepDrop
                             
-                        updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
-                    rAll+=r
-                    s = s1
-                    
-                    if d:
-                       break
+                        if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
+                            trainBatch = myBuffer.sample(batch_size) #Get a random batch of experiences.
+                            #Below we perform the Double-DQN update to the target Q-values
+                            Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3])})
+                            Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3])})
+                            end_multiplier = -(trainBatch[:,4] - 1)
+                            doubleQ = Q2[range(batch_size),Q1]
+                            targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
+                            #Update the network with our target values.
+                            _ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]),mainQN.targetQ:targetQ, mainQN.actions:trainBatch[:,1]})
+                                
+                            updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
+                        rAll+=r
+                        s = s1
+                        
+                        if d:
+                           break
 		    
                 myBuffer.add(episodeBuffer.buffer)
                 jList.append(j)

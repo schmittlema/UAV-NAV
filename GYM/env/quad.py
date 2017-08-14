@@ -7,6 +7,7 @@ import subprocess
 import time
 import math
 from random import randint
+from slam import Slam
 
 from gym import utils, spaces
 import gazebo_env
@@ -22,12 +23,6 @@ from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
 from std_srvs.srv import Empty
 from VelocityController import VelocityController
-
-#For Stereo
-from sensor_msgs.msg import Image,PointCloud2
-import cv2
-from cv_bridge import CvBridge, CvBridgeError
-import matplotlib.pyplot as plt
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -64,24 +59,21 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.local_pos.publish(self.pose)
             self.rate.sleep()
 
-        timeout = 150
-        err = 1
-        while err > .3:
-            err = abs(self.pose.pose.position.z - self.cur_pose.pose.position.z)
+        self.pose.pose.position.y = 0
+        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
             self.local_pos.publish(self.pose)
             self.rate.sleep()
-            timeout -= 1 
-            if timeout < 0:
-                self.reset_proxy()
-                timeout = 150
+
+        self.pose.pose.position.y = 2.5
+        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
+            self.local_pos.publish(self.pose)
+            self.rate.sleep()
+
 
         self.started = True
         print self.started
         print "Initialized"
 
-
-    def _pause(self, msg):
-        programPause = raw_input(str(msg))
 
     def __init__(self):
         # Launch the simulation with the given launchfile name
@@ -105,12 +97,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.arm_proxy = rospy.ServiceProxy('mavros/cmd/arming', CommandBool)
 
-        rospy.Subscriber('/voxel_grid/output',PointCloud2,callback=self.callback_voxel)
-        
-        self.bridge = CvBridge()
-
-        rospy.Subscriber('camera/depth/image_raw',Image,self.callbackdepth)
-
         rospy.Subscriber('/bumper_rotor0',ContactsState,self.callbackrotor)
         rospy.Subscriber('/bumper_rotor1',ContactsState,self.callbackrotor)
         rospy.Subscriber('/bumper_rotor2',ContactsState,self.callbackrotor)
@@ -119,39 +105,46 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.state = ""
 	
 	self.successes = 0
+        self.collision = False
 
-
-        self.stereo = cv2.StereoBM_create(16,50)
-        self.depth_image = False
-	
         self.cur_pose = PoseStamped()
 
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 20
+        self.pose.pose.position.y = 2.5 
         self.pose.pose.position.z = 2
+        self.pose.pose.orientation.x = 0
+        self.pose.pose.orientation.y = 0
+        self.pose.pose.orientation.z = 0.707 
+        self.pose.pose.orientation.w = 0.707
 
         self.started = False
         self.rate = rospy.Rate(10)
 
         self.pause_sim = False
         self.nowait = True
-        self.new_pose = False
         self.steps = 0
-        self.max_episode_length = 200
         self.direction = 0
         self.target = 0
-
+        self.slam = Slam()
+        self.temp_pause = False
+        self.primitives = ["forward","left","hard_left","right","hard_right","backward"]
+        self.accuracy = 0.2
+        self.heading = math.pi/2
 
     def pos_cb(self,msg):
         self.cur_pose = msg
-        self.new_pose = True
+
+    def filter_correct(self):
+        self.pose.pose.position.z = 0
+        self.pose.pose.position.y = 0
+        return self.at_target(self.cur_pose,self.pose,0.1)
+
+    def at_target(self,cur,target,accuracy):
+        return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and (abs(cur.pose.position.y - target.pose.position.y) < accuracy) and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
 
     def state_cb(self,msg):
         self.state = msg
-
-    def callback_voxel(self,msg):
-        print msg.data
 
     def start(self):
 	counter = 15
@@ -159,7 +152,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	    counter = counter -1
  	    time.sleep(1)
         
-        #self.reset_random(0)
         self.get_data()
 
         self._takeoff()
@@ -167,33 +159,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         print "Main Running"
         while not rospy.is_shutdown():
-            self.local_pos.publish(self.determine_direction(self.pose))
+            if not self.temp_pause:
+                self.local_pos.publish(self.pose)
+            self.slam.map_publisher.publish(self.slam.map)
             self.rate.sleep()
             self.pauser()
-
-    def determine_direction(self,pose):
-        if self.direction == 0:
-            pose.pose.orientation.x = 0
-            pose.pose.orientation.y = 0
-            pose.pose.orientation.z = 0
-            pose.pose.orientation.w = 1
-        if self.direction == 1:
-            pose.pose.orientation.x = 0
-            pose.pose.orientation.y = 0
-            pose.pose.orientation.z = .707
-            pose.pose.orientation.w = .707
-        if self.direction == 2:
-            pose.pose.orientation.x = 0
-            pose.pose.orientation.y = 0
-            pose.pose.orientation.z = 1
-            pose.pose.orientation.w = 0
-        if self.direction == 3:
-            pose.pose.orientation.x = 0
-            pose.pose.orientation.y = 0
-            pose.pose.orientation.z = -.707
-            pose.pose.orientation.w = .707
-        return pose
-
 
     def pauser(self):
         if self.pause_sim and not rospy.is_shutdown():
@@ -211,25 +181,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             except rospy.ServiceException, e:
                 print ("/gazebo/unpause_physics service call failed")
 
-    def callbackdepth(self,data):
-        try:
-            img = self.bridge.imgmsg_to_cv2(data,"passthrough")
-            self.depth_image = cv2.resize(img,(0,0),fx=0.5,fy=0.5)
-        except CvBridgeError, e:
-            print e
-
-        self.depth_image = np.array(self.depth_image, dtype=np.uint8)
-        cv2.normalize(self.depth_image,self.depth_image,1,255,cv2.NORM_MINMAX)
-        #self.depth_image = self.depth_image * 50
-
     def callbackrotor(self,data):
         if len(data.states) > 0:
             if data.states[0].collision2_name != "":
-                #print data.states[0].collision2_name
-                self.reset_proxy()
+                self.collision = True
+                print "COLLISION"
 
     def observe(self):
-        return self.depth_image
+        #return self.depth_image
+        return 1
 
     def wait_until_start(self):
         while True:
@@ -247,112 +207,79 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             except:
                 pass
 
-    def reset_random(self,alt):
-	modelstate = ModelState()
-	modelstate.model_name = "f450-stereo"
-        num = randint(0,3)
-        if num == 0:
-            modelstate.pose.position.x = 25
-            modelstate.pose.position.y = -29
-        if num == 1:
-            modelstate.pose.position.x = -28
-            modelstate.pose.position.y = -27
-        if num == 2:
-            modelstate.pose.position.x = 25
-            modelstate.pose.position.y = 32
-        if num == 3:
-            modelstate.pose.position.x = -24
-            modelstate.pose.position.y = 26
-        
-        tar = randint(0,1)
-        loc = num
-        if loc == 0:
-            if tar == 0:
-                self.target = 1
-                self.direction = 2
-            else:
-                self.direction = 1
-                self.target = 2
-        if loc == 1:
-            if tar == 0:
-                self.direction = 0
-                self.target = 0
-            else:
-                self.direction = 1
-                self.target = 3
-        if loc == 2:
-            if tar == 0:
-                self.direction = 3
-                self.target = 0
-            else:
-                self.direction = 2
-                self.target = 3
-        if loc == 3:
-            if tar == 0:
-                self.direction = 3
-                self.target = 1
-            else:
-                self.direction = 0
-                self.target = 2
-        self.direction = 0
+    def modify_target(self,trial):
+        target_position = PoseStamped()
+        target = Pose()
+        target.position.z = 2
+        target.orientation.x = 0
+        target.orientation.y = 0
+        target.orientation.z = 0.707 
+        target.orientation.w = 0.707
 
-	modelstate.pose.position.z = alt
-        self.pose.pose.position.y = modelstate.pose.position.y
-        self.pose.pose.position.x = modelstate.pose.position.x
-	self.model_state(self.determine_direction(modelstate))
-        print "target: ",self.target
-        print "direction " ,self.direction
-        print "location " ,loc
+        if trial == 0:
+            target.position.y = self.cur_pose.pose.position.y + .75
+            target.position.x = self.cur_pose.pose.position.x
+        if trial == 1:
+            target.position.y = self.cur_pose.pose.position.y + 0.5
+            target.position.x = self.cur_pose.pose.position.x - 0.5
+        if trial == 2:
+            target.position.y = self.cur_pose.pose.position.y + .15
+            target.position.x = self.cur_pose.pose.position.x - .75
+        if trial == 3:
+            target.position.y = self.cur_pose.pose.position.y + 0.5
+            target.position.x = self.cur_pose.pose.position.x + 0.5
+        if trial == 4:
+            target.position.y = self.cur_pose.pose.position.y + 0.15
+            target.position.x = self.cur_pose.pose.position.x + 0.75
+        if trial == -1:
+            target.position.y = self.cur_pose.pose.position.y - 0.75
+            target.position.x = self.cur_pose.pose.position.x 
 
-    def detect_crash(self):
-        if self.cur_pose.pose.position.z < 0.3:
-            return True
-        return False
+        target_position.pose = target
+        return target_position
+
+    def auto_reset(self):
+        print "TODO"
 
     def detect_done(self,reward):
         done = False
-        if self.detect_crash():
+        if self.collision:
 	    print "CRASH"
             done = True
             self.steps = 0
 	    self.hard_reset()
-        if reward == 10:
+        if self.cur_pose.pose.position.y > 40:
 	    print "GOAL"
             done = True
             self.steps = 0
 	    self.successes += 1
-            #self.reset_random(2)
-        if self.steps >= self.max_episode_length:
-	    print "MAXOUT"
-            done = True
-            self.steps = 0
-	    reward = reward -2
-            self.reset_proxy()
-            #self.reset_random(2)
+            self.auto_reset()
+            self.slam.reset_proxy()
         return done,reward
+
+    def dangerous(self,action):
+        return self.slam.check_collision(self.slam.sep_dict[action])
 
     def _step(self, action):
         self.steps += 1
-        self.pause_sim = 0
-        #if action == 0: #HOLD
-            #TODO
-        #elif action == 1: #RIGHT
-            #TODO
-        #elif action == 2: #LEFT
-            #TODO
+        #self.pause_sim = 0
+
+        if self.dangerous(action):
+            print "autopilot"
+            action = self.slam.auto_pilot_step(self.heading)
+        else:
+            print "deep learner"
+
+        print self.primitives[action]
+        self.pose = self.modify_target(action)
 
         self.rate.sleep()
         observation = self.observe()
         reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
-        #FIX ME
-        reward = 1
 
-        if done:
-            self.targetx = randint(-10,10)
-
-        self.pause_sim = 1
+        #self.pause_sim = 1
         return observation, reward,done,{}
 
     def sigmoid(self,x):
@@ -373,19 +300,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.reset_proxy()
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
-        #self.reset_random(0)
-
-        self.started = False
-        self.new_pose = False
-        err = 10
-        while not self.new_pose:
+        self.temp_pause = True
+        while not self.filter_correct():
             self.rate.sleep()
+        self._takeoff()
+        self.slam.reset_proxy()
+        self.temp_pause = False
 
-        while not self.started:
-            err = abs(self.pose.pose.position.z - self.cur_pose.pose.position.z)
-            if err <.3:
-                self.started = True
-            self.rate.sleep()
         print "hard world reset"
-
         return self.observe()

@@ -28,7 +28,7 @@ from nav_msgs.msg import OccupancyGrid, MapMetaData
 class Slam():
     def __init__(self):
         # Connect to map
-        rospy.init_node('slam', anonymous=True)
+        #rospy.init_node('slam', anonymous=True)
 
         rospy.Subscriber('/rtabmap/grid_map',OccupancyGrid,self.call_map)
         rospy.Subscriber('/stereo_odometer/pose',PoseStamped,self.call_pose)
@@ -42,6 +42,7 @@ class Slam():
         self.local_map = []
         self.pose = PoseStamped()
         self.tlibrary = self.read_dictionary()
+        self.sep_dict = self.seperate_dictionary(self.tlibrary)
         
     def call_map(self,msg):
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
@@ -104,7 +105,7 @@ class Slam():
 
     def read_dictionary(self):
         library = []
-        with open('trajectory_library.txt','r') as infile:
+        with open('GYM/env/trajectory_library.txt','r') as infile:
             for line in infile:
                 if line[0] == "{":
                     library.append(eval(line))
@@ -185,7 +186,7 @@ class Slam():
         return angles
 
     def auto_pilot_step(self,heading):
-        paths = self.seperate_dictionary(self.tlibrary)
+        paths = self.sep_dict
         possible_paths = {}
         most_direct = self.closest_angle(heading)
         for p in paths:
