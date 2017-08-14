@@ -8,6 +8,7 @@ import time
 import math
 from random import randint
 from slam import Slam
+import copy as cp
 
 from gym import utils, spaces
 import gazebo_env
@@ -131,10 +132,20 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.primitives = ["forward","left","hard_left","right","hard_right","backward"]
         self.accuracy = 0.2
         self.heading = math.pi/2
+        #used to retrace steps if in dead-end
+        self.old_moves = [] 
         self.old_move = PoseStamped()
         self.old_move.pose.position.z = 2
         self.old_move.pose.position.x = 0
         self.old_move.pose.position.y = 0
+        self.old_move.pose.orientation.x = 0
+        self.old_move.pose.orientation.y = 0
+        self.old_move.pose.orientation.z = 0.707 
+        self.old_move.pose.orientation.w = 0.707
+        self.old_moves.append([0,self.old_move])
+        #Moves that are retraced from so as not to go back and forth
+        self.blacklist = [False,False,False,False,False]
+        self.reverse = False
 
     def pos_cb(self,msg):
         self.cur_pose = msg
@@ -142,7 +153,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def filter_correct(self):
         self.pose.pose.position.z = 0
         self.pose.pose.position.y = 0
-        return self.at_target(self.cur_pose,self.pose,0.1)
+        self.pose.pose.position.x = 0
+        return self.at_target(self.cur_pose,self.pose,0.2)
 
     def at_target(self,cur,target,accuracy):
         return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and (abs(cur.pose.position.y - target.pose.position.y) < accuracy) and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
@@ -211,6 +223,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             except:
                 pass
 
+    def reverse_add(self,one,two):
+        if not self.reverse:
+            return one + two
+        else:
+            return one - two
+
+    def reverse_subtract(self,one,two):
+        if not self.reverse:
+            return one - two
+        else:
+            return one + two
+
     def modify_target(self,trial):
         target_position = PoseStamped()
         target = Pose()
@@ -218,36 +242,93 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         target.orientation.x = 0
         target.orientation.y = 0
         target.orientation.z = 0.707 
+        if self.reverse:
+            target.orientation.z = -0.707 
         target.orientation.w = 0.707
 
         if trial == 0:
-            target.position.y = self.cur_pose.pose.position.y + .75
+            target.position.y = self.reverse_add(self.cur_pose.pose.position.y,.75)
             target.position.x = self.cur_pose.pose.position.x
         if trial == 1:
-            target.position.y = self.cur_pose.pose.position.y + 0.5
-            target.position.x = self.cur_pose.pose.position.x - 0.5
+            target.position.y = self.reverse_add(self.cur_pose.pose.position.y,0.5)
+            target.position.x = self.reverse_subtract(self.cur_pose.pose.position.x,0.5)
         if trial == 2:
-            target.position.y = self.cur_pose.pose.position.y + .15
-            target.position.x = self.cur_pose.pose.position.x - .75
+            target.position.y = self.reverse_add(self.cur_pose.pose.position.y,0)
+            target.position.x = self.reverse_subtract(self.cur_pose.pose.position.x,.75)
         if trial == 3:
-            target.position.y = self.cur_pose.pose.position.y + 0.5
-            target.position.x = self.cur_pose.pose.position.x + 0.5
+            target.position.y = self.reverse_add(self.cur_pose.pose.position.y,0.5)
+            target.position.x = self.reverse_add(self.cur_pose.pose.position.x,0.5)
         if trial == 4:
-            target.position.y = self.cur_pose.pose.position.y + 0.15
-            target.position.x = self.cur_pose.pose.position.x + 0.75
+            target.position.y = self.reverse_add(self.cur_pose.pose.position.y,0)
+            target.position.x = self.reverse_add(self.cur_pose.pose.position.x,0.75)
 
         if trial == -1:
-            target.position.y = self.old_move.pose.position.y
-            target.position.x = self.old_move.pose.position.x
+            self.slam.accuracy = 0.1
+            move = self.old_moves[-1]
+            self.old_moves = self.old_moves[:-1]
+            target.position.y = move[1].pose.position.y
+            target.position.x = move[1].pose.position.x
+            self.blacklist = [False,False,False,False,False]
+            self.blacklist[move[0]] = True
+            print "blacklisted: " + self.primitives[move[0]]
         else:
-            self.old_move.pose.position.x = self.cur_pose.pose.position.x 
-            self.old_move.pose.position.y = self.cur_pose.pose.position.y
+            self.slam.accuracy = 0.2
+            self.old_move.pose.position.x = cp.deepcopy(self.cur_pose.pose.position.x)
+            self.old_move.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
+            self.old_moves.append([trial,cp.deepcopy(self.old_move)])
 
         target_position.pose = target
         return target_position
 
     def auto_reset(self):
-        print "TODO"
+        self.pose.pose.orientation.z =self.pose.pose.orientation.z * -1.0
+        self.pose.pose.position.z = 2
+        self.heading = self.heading * -1.0
+        if self.reverse:
+            self.reverse = False
+            self.slam.flip = False
+
+            self.pose.pose.position.x = 0
+            self.pose.pose.position.y = 0
+            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
+                self.rate.sleep()
+            self.slam.reset_proxy()
+
+            self.pose.pose.position.x = 0
+            self.pose.pose.position.y = 2.5
+
+            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.2):
+                self.rate.sleep()
+
+            self.old_moves = [] 
+            self.old_move = PoseStamped()
+            self.old_move.pose.position.x = 0
+            self.old_move.pose.position.y = 0
+            self.old_moves.append([0,self.old_move])
+        else:
+            self.reverse = True
+            self.slam.flip = True
+
+
+            self.pose.pose.position.x = 0
+            self.pose.pose.position.y = 43
+            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
+                self.rate.sleep()
+            self.slam.reset_proxy()
+
+            self.pose.pose.position.x = 0
+            self.pose.pose.position.y = 40
+
+            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.2):
+                self.rate.sleep()
+
+            self.old_moves = [] 
+            self.old_move = PoseStamped()
+            self.old_move.pose.position.z = 2
+            self.old_move.pose.position.x = 0
+            self.old_move.pose.position.y = 45
+            self.old_moves.append([0,self.old_move])
+
 
     def detect_done(self,reward):
         done = False
@@ -256,17 +337,19 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
 	    self.hard_reset()
-        if self.cur_pose.pose.position.y > 40:
+        if (not self.reverse and self.cur_pose.pose.position.y > 40) or self.cur_pose.pose.position.y < 0:
 	    print "GOAL"
             done = True
             self.steps = 0
 	    self.successes += 1
             self.auto_reset()
-            self.slam.reset_proxy()
         return done,reward
 
     def dangerous(self,action):
-        return self.slam.check_collision(self.slam.sep_dict[action])
+        if not self.reverse:
+            return self.slam.check_collision(self.slam.sep_dict[action]) or self.blacklist[action]
+        else:
+            return self.slam.check_collision(self.slam.rsep_dict[action]) or self.blacklist[action]
 
     def _step(self, action):
         self.steps += 1
@@ -274,7 +357,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         if self.dangerous(action):
             print "autopilot"
-            action = self.slam.auto_pilot_step(self.heading)
+            action = self.slam.auto_pilot_step(self.heading,self.blacklist)
         else:
             print "deep learner"
 
@@ -304,15 +387,31 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def _reset(self):
         return self.observe()
 
+    def land(self):
+        while self.state.mode != "AUTO.LAND":
+            try:
+                success = self.mode_proxy(0,'AUTO.LAND')
+                print "land enabled"
+            except rospy.ServiceException, e:
+                print ("mavros/set_mode service call failed: %s"%e)
+
     def hard_reset(self):
         self.reset_proxy()
+        self.collision = False
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
         self.temp_pause = True
+        self.land()
         while not self.filter_correct():
             self.rate.sleep()
         self._takeoff()
         self.slam.reset_proxy()
+        self.old_moves = [] 
+        self.old_move = PoseStamped()
+        self.old_move.pose.position.z = 2
+        self.old_move.pose.position.x = 0
+        self.old_move.pose.position.y = 0
+        self.old_moves.append([0,self.old_move])
         self.temp_pause = False
 
         print "hard world reset"

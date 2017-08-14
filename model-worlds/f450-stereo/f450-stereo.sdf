@@ -89,6 +89,15 @@
           </contact>
         </surface>
       </collision>
+      <sensor name='contact_sensor' type='contact'>
+          <contact>
+              <collision>base_link_inertia_collision</collision>
+          </contact>
+          <plugin name="bumper" filename="libgazebo_ros_bumper.so">
+            <bumperTopicName>bumper</bumperTopicName>
+            <frameName>base_link</frameName>
+          </plugin>
+      </sensor>
     </link>
     <link name='/imu_link'>
       <pose frame=''>0 0 0 0 -0 0</pose>
@@ -109,7 +118,7 @@
     </link>
 
     <link name='f450-stereo/robot_camera'>
-      <pose frame=''>0.12 -0 -0.02 0 0 0</pose>
+      <pose frame=''>0.12 -0 -0.12 0 0 0</pose>
       <inertial>
         <pose frame=''>0 0 0 0 -0 0</pose>
         <mass>0.015</mass>
@@ -127,7 +136,7 @@
      <sensor type="multicamera" name="stereo_camera">
       <update_rate>30.0</update_rate>
       <camera name="left">
-        <horizontal_fov>1.3962634</horizontal_fov>
+        <horizontal_fov>1.8962634</horizontal_fov>
         <image>
           <width>800</width>
           <height>800</height>
@@ -145,7 +154,7 @@
       </camera>
       <camera name="right">
         <pose>0 -0.07 0 0 0 0</pose>
-        <horizontal_fov>1.3962634</horizontal_fov>
+        <horizontal_fov>1.8962634</horizontal_fov>
         <image>
           <width>800</width>
           <height>800</height>
@@ -332,6 +341,14 @@
           </contact>
         </surface>
       </collision>
+      <sensor name='contact_sensor_rotor_0' type='contact'>
+          <contact>
+              <collision>rotor_0_collision</collision>
+          </contact>
+          <plugin name="bumper_rotor0" filename="libgazebo_ros_bumper.so">
+            <bumperTopicName>bumper_rotor0</bumperTopicName>
+          </plugin>
+      </sensor>
     </link>
     <link name='rotor_1'>
       <pose frame=''>-0.159 0.159 0.11 0 -0 0</pose>
@@ -419,6 +436,14 @@
           </contact>
         </surface>
       </collision>
+      <sensor name='contact_sensor_rotor_1' type='contact'>
+          <contact>
+              <collision>rotor_1_collision</collision>
+          </contact>
+          <plugin name="bumper_rotor1" filename="libgazebo_ros_bumper.so">
+            <bumperTopicName>bumper_rotor1</bumperTopicName>
+          </plugin>
+      </sensor>
     </link>
     <link name='rotor_2'>
       <pose frame=''>0.159 0.159 0.11 0 -0 0</pose>
@@ -506,6 +531,14 @@
           </contact>
         </surface>
       </collision>
+      <sensor name='contact_sensor_rotor_2' type='contact'>
+          <contact>
+              <collision>rotor_2_collision</collision>
+          </contact>
+          <plugin name="bumper_rotor2" filename="libgazebo_ros_bumper.so">
+            <bumperTopicName>bumper_rotor2</bumperTopicName>
+          </plugin>
+      </sensor>
     </link>
     <link name='rotor_3'>
       <pose frame=''>-0.159 -0.159 0.11 0 -0 0</pose>
@@ -593,6 +626,14 @@
           </contact>
         </surface>
       </collision>
+      <sensor name='contact_sensor_rotor_3' type='contact'>
+          <contact>
+              <collision>rotor_3_collision</collision>
+          </contact>
+          <plugin name="bumper_rotor3" filename="libgazebo_ros_bumper.so">
+            <bumperTopicName>bumper_rotor3</bumperTopicName>
+          </plugin>
+      </sensor>
     </link>
     <joint name='/imu_joint' type='revolute'>
       <parent>base_link</parent>
