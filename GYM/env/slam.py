@@ -32,6 +32,7 @@ class Slam():
 
         rospy.Subscriber('/rtabmap/grid_map',OccupancyGrid,self.call_map)
         rospy.Subscriber('/stereo_odometer/pose',PoseStamped,self.call_pose)
+        #rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.call_pose)
 
 	self.map_publisher = rospy.Publisher('/slam/map',OccupancyGrid,queue_size=10)
 
@@ -67,6 +68,7 @@ class Slam():
                 msg.data[b[1]][b[0]] = 0
             except IndexError:
                 pass
+        self.local_map = cp.deepcopy(msg.data) #np.reshape(np.array(self.map.data),(-1,self.map.info.width))
         for d in self.convert_dictionary_to_cells(lib):
             try:
                 msg.data[d[1]][d[0]] = 40
@@ -74,10 +76,26 @@ class Slam():
                 pass
         msg.data = msg.data.flatten()
         self.map = msg
-        self.local_map = np.reshape(np.array(self.map.data),(-1,self.map.info.width))
 
     def call_pose(self,msg):
         self.pose = msg
+        #grid_pos = self.convert_to_grid_cells(self.pose)
+        """for t in self.flatten_dictionary(self.tlibrary):
+            tpose = PoseStamped()
+            tpose.pose.position.x = t[0]
+            tpose.pose.position.y = t[1]
+            bubble = self.add_bubble(self.convert_to_local_frame(tpose))
+            for b in bubble:
+                try:
+                    #self.local_map[b[1]][b[0]] = 40
+
+                except IndexError:
+                    pass
+        try:
+            self.local_map[grid_pos[1]][grid_pos[0]] = 40
+            self.map.data = self.local_map.flatten()
+        except IndexError:
+            pass"""
     
     def flatten_dictionary(self,dictionary):
         flat_array = []
@@ -159,7 +177,8 @@ class Slam():
         bubble = []
         resolution = self.map.info.resolution
         grid_pos = self.convert_to_grid_cells(input_pos)
-        radius = 0.3556
+        #radius = 0.3556
+        radius = 0.375
         #radius = 0.5
         input_pos.pose.position.x = input_pos.pose.position.x + radius
         s1 = self.convert_to_grid_cells(input_pos)[0]
@@ -190,7 +209,11 @@ class Slam():
                     uobst = uobst +1
             except IndexError:
                 uobst+=1
-        return uobst/float(len(bubble)) > 0.03
+        #print [uobst/float(len(bubble)), uobst,len(bubble)]
+        try:
+            return uobst/float(len(bubble)) > 0.03
+        except:
+            return True
 
     def check_collision(self,points):
         for x in points:
@@ -205,8 +228,7 @@ class Slam():
             angles[a] = abs(angles[a]-heading)
         return angles
 
-    def auto_pilot_step(self,heading,blacklist):
-        paths = self.sep_dict
+    def auto_pilot_step(self,heading,blacklist,paths):
         possible_paths = {}
         most_direct = self.closest_angle(heading)
         for p in paths:

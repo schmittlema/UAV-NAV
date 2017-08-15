@@ -37,7 +37,6 @@ startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
 anneling_steps = 500000 #How many steps of training to reduce startE to endE.
 num_episodes = 10000 #How many episodes of game environment to train network with.
-max_epLength = 200 #The max allowed length of our episode.
 load_model = False #Whether to load a saved model.
 path = "../log/logfile-exp-6" #The path to save our model to.
 h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
@@ -172,8 +171,9 @@ def main():
 		rAll = 0
 		j=0
                 #The Q-Network
-                while j < max_epLength: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
-                    if env.env.at_target(env.env.cur_pose,env.env.pose,accuracy):
+                while not d: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
+                    if env.env.at_target(env.env.cur_pose,env.env.pose,accuracy) or env.env.next_move:
+                        env.env.next_move = False
                         j+=1
                         #Choose an action by greedily (with e chance of random action) from the Q-network
                         if np.random.rand(1) < e or total_steps < steps_till_training:
@@ -202,9 +202,6 @@ def main():
                             updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
                         rAll+=r
                         s = s1
-                        
-                        if d:
-                           break
 		    
                 myBuffer.add(episodeBuffer.buffer)
                 jList.append(j)
