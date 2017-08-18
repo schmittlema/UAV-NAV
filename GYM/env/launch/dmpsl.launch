@@ -3,16 +3,14 @@
     <!-- MAVROS posix SITL environment launch script -->
     <arg name="x" default="0"/>
     <arg name="y" default="0"/>
-    <arg name="z" default="0"/>
+    <arg name="z" default="0.1"/>
     <arg name="R" default="0"/>
     <arg name="P" default="0"/>
-    <arg name="Y" default="0"/>
-
-
+    <arg name="Y" default="1.57"/>
 
     <arg name="est" default="lpe"/>
     <arg name="vehicle" default="f450-depth"/>
-    <arg name="world" default="$(find mavlink_sitl_gazebo)/worlds/trainworld.world"/>
+    <arg name="world" default="$(find mavlink_sitl_gazebo)/worlds/trainworld_0.world"/>
     <arg name="sdf" default="$(find mavlink_sitl_gazebo)/models/$(arg vehicle)/$(arg vehicle).sdf"/>
 
     <arg name="rcS" default="$(find px4)/posix-configs/SITL/init/$(arg est)/$(arg vehicle)"/>
@@ -46,7 +44,13 @@
         <arg name="use_sim_time" value="true"/>
     </include>
 
-    <node pkg="tf" type="static_transform_publisher" name="stereo_optical_broadcaster" args="0.12 -0 0.06 -1.571 0 -1.571 /base_footprint /camera_depth_frame 100" />
+    <node pkg="tf" type="static_transform_publisher" name="stereo_optical_broadcaster" args="0.12 -0 0.06 0 0 -1.571 /base_link /camera_depth_frame 100" />
+
+    <node pkg="tf" type="static_transform_publisher" name="base_fcu_broadcaster" args="0.12 -0 0.06 0 0 -1.571 /base_link /fcu 100" />
+
+    <node pkg="tf" type="static_transform_publisher" name="map_camera_broadcaster" args="0.12 -0 0.06 -3.14  0 -1.571 /camera_depth_frame /map  100" />
+
+    <node pkg="tf" type="static_transform_publisher" name="stereo_foot_broadcaster" args="0.12 -0 0.06  0 -1.57 1.57 /camera_depth_frame /base_footprint 100" />
 
     <node pkg="nodelet" type="nodelet" name="pcl_manager" args="manager" output="screen" />
       <!-- Run a VoxelGrid filter to clean NaNs and downsample the data -->
@@ -79,10 +83,10 @@
               <param name="frame_id" type="string" value="base_footprint"/>
 
               <param name="subscribe_depth" type="bool" value="true"/>
-              <param name="subscribe_scan" type="bool" value="true"/>
+              <param name="subscribe_scan" type="bool" value="false"/>
 
               <remap from="odom" to="/mavros/local_position/odom"/>
-              <remap from="scan" to="/laser_scan"/>
+              <remap from="subscribe_depth" to="/camera/depth/image_raw"/>
 
               <remap from="rgb/image" to="/camera/rgb/image_raw"/>
               <remap from="depth/image" to="/camera/depth/image_raw"/>
@@ -104,6 +108,9 @@
               <param name="Rtabmap/TimeThr"           type="string" value="700"/>
               <param name="Mem/RehearsalSimilarity"   type="string" value="0.45"/>
               <param name="Icp/CorrespondenceRatio"   type="string" value="0.5"/>
+              <param name="grid_unknown_space_filled" type="bool" value="false"/>
+              <param name="grid_eroded" type="bool" value="true"/>
+              <param name="grid_cell_size" type="double" value="0.05"/>
         </node>
       </group>
     <include file="$(find px4)/launch/mavros.launch">

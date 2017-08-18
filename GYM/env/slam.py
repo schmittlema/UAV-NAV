@@ -32,11 +32,13 @@ class Slam():
 
         rospy.Subscriber('/rtabmap/grid_map',OccupancyGrid,self.call_map)
         rospy.Subscriber('/stereo_odometer/pose',PoseStamped,self.call_pose)
+        #rospy.Subscriber('/rtabmap/odom',PoseStamped,self.call_pose)
         #rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.call_pose)
 
 	self.map_publisher = rospy.Publisher('/slam/map',OccupancyGrid,queue_size=10)
 
-        self.reset_proxy = rospy.ServiceProxy('/rtabmap/reset', Empty)
+        self.Rreset_proxy = rospy.ServiceProxy('/rtabmap/reset', Empty)
+        self.reset_proxy = rospy.ServiceProxy('/rtabmap/trigger_new_map', Empty)
         self.pause_proxy = rospy.ServiceProxy('/rtabmap/pause', Empty)
         self.resume_proxy = rospy.ServiceProxy('/rtabmap/resume', Empty)
 
@@ -44,20 +46,22 @@ class Slam():
         self.map = OccupancyGrid()
         self.local_map = []
         self.pose = PoseStamped()
+        self.grid_pose = []
         self.tlibrary = self.read_dictionary()
         self.sep_dict = self.seperate_dictionary(self.tlibrary)
         self.rlibrary = self.reverse(self.tlibrary)
         self.rsep_dict = self.seperate_dictionary(self.rlibrary)
         self.flip = False
+        self.depth_cam = False
         
     def call_map(self,msg):
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
-        rospy.wait_for_message('/stereo_odometer/pose',PoseStamped,timeout=5)
+        #rospy.wait_for_message('/stereo_odometer/pose',PoseStamped,timeout=5)
         bubble = self.add_bubble(self.pose)
         msg.data = np.reshape(np.array(msg.data),(-1,msg.info.width))
         #grid_pos = self.convert_to_grid_cells(self.pose)
         #msg.data[grid_pos[1]][grid_pos[0]] = 50
-        #origin_pos = self.convert_to_origin_cells(msg.info.origin)
+        origin_pos = self.convert_to_origin_cells(msg.info.origin)
         #msg.data[origin_pos[1]][origin_pos[0]] = 20
         if not self.flip:
             lib = self.tlibrary
@@ -65,13 +69,19 @@ class Slam():
             lib = self.rlibrary
         for b in bubble:
             try:
-                msg.data[b[1]][b[0]] = 0
+                if self.depth_cam:
+                    msg.data[self.grid_pose[0]+(b[1]-self.grid_pose[1])][self.grid_pose[1]+(b[0]-self.grid_pose[0])] = 0
+                else:
+                    msg.data[b[1]][b[0]] = 0
             except IndexError:
                 pass
         self.local_map = cp.deepcopy(msg.data) #np.reshape(np.array(self.map.data),(-1,self.map.info.width))
         for d in self.convert_dictionary_to_cells(lib):
             try:
-                msg.data[d[1]][d[0]] = 40
+                if self.depth_cam:
+                    msg.data[self.grid_pose[1]+(b[0]-self.grid_pose[0])][self.grid_pose[0]+(b[1]-self.grid_pose[1])] = 40
+                else:
+                    msg.data[d[1]][d[0]] = 40
             except IndexError:
                 pass
         msg.data = msg.data.flatten()
@@ -79,7 +89,7 @@ class Slam():
 
     def call_pose(self,msg):
         self.pose = msg
-        #grid_pos = self.convert_to_grid_cells(self.pose)
+        #self.grid_pos = self.convert_to_grid_cells(self.pose)
         """for t in self.flatten_dictionary(self.tlibrary):
             tpose = PoseStamped()
             tpose.pose.position.x = t[0]
@@ -205,8 +215,12 @@ class Slam():
         uobst = 0.0
         for b in bubble:
             try:
-                if (self.local_map[b[1]][b[0]] == -1 or self.local_map[b[1]][b[0]] >50):
-                    uobst = uobst +1
+                if self.depth_cam:
+                    if (self.local_map[b[0]][b[1]] == -1 or self.local_map[b[0]][b[1]] >50):
+                        uobst = uobst +1
+                else:
+                    if (self.local_map[b[1]][b[0]] == -1 or self.local_map[b[1]][b[0]] >50):
+                        uobst = uobst +1
             except IndexError:
                 uobst+=1
         #print [uobst/float(len(bubble)), uobst,len(bubble)]

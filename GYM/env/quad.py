@@ -15,7 +15,7 @@ import gazebo_env
 from gym.utils import seeding
 
 from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
-from sensor_msgs.msg import LaserScan, NavSatFix
+from sensor_msgs.msg import LaserScan, NavSatFix,Image
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
 from gazebo_msgs.srv import SetModelState
@@ -24,6 +24,7 @@ from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
 from std_srvs.srv import Empty
 from VelocityController import VelocityController
+import cv2
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -65,10 +66,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.local_pos.publish(self.pose)
             self.rate.sleep()
 
-        self.pose.pose.position.y = 2.5
-        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
-            self.local_pos.publish(self.pose)
-            self.rate.sleep()
+        if not self.depth_cam:
+            self.pose.pose.position.y = 2.5
+            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
+                self.local_pos.publish(self.pose)
+                self.rate.sleep()
 
 
         self.started = True
@@ -81,6 +83,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
+        rospy.Subscriber('/stereo/left/image_mono', Image, callback=self.callback_observe)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -91,6 +94,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 	self.model_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
 
         self.reset_proxy = rospy.ServiceProxy('/gazebo/reset_world', Empty)
+        
+        self.reset_odometry = rospy.ServiceProxy('/stereo_odometer/reset_pose', Empty)
 
 	self.local_pos = rospy.Publisher('mavros/setpoint_position/local',PoseStamped,queue_size=10)
 
@@ -149,15 +154,26 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.reverse = False
         self.action = 0
         self.next_move = False
+        self.depth_cam = False
+        self.mono_image = False
 
     def pos_cb(self,msg):
         self.cur_pose = msg
 
+    def callback_observe(self,msg):
+        print msg.data
+        print msg.data.size 
+        if len(msg.data) > 800:
+            raw_image = np.reshape(np.array(msg.data),[800,800])
+            resized = cpv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
+            self.mono_image = resized.flatten()
+            print self.mono_image
+
     def filter_correct(self):
         self.pose.pose.position.z = 0
-        self.pose.pose.position.y = -2
+        self.pose.pose.position.y = -1
         self.pose.pose.position.x = 0
-        return self.at_target(self.cur_pose,self.pose,4)
+        return self.at_target(self.cur_pose,self.pose,5)
 
     def at_target(self,cur,target,accuracy):
         return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and (abs(cur.pose.position.y - target.pose.position.y) < accuracy) and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
@@ -279,29 +295,32 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             target.position.x = self.reverse_add(self.cur_pose.pose.position.x,0.75)
 
         if trial == -1 or self.stuck > 4:
-            self.slam.accuracy = 0.1
-            if self.stuck > 4:
-                print "Stuck!"
-                self.stuck = 0
-                curr = trial
-                while not rospy.is_shutdown():
-                    temp_curr = self.old_moves[-1][0]
-                    if abs(curr-temp_curr) != 2:
-                        move = self.old_moves[-1]
+            try:
+                self.slam.accuracy = 0.1
+                if self.stuck > 4:
+                    print "Stuck!"
+                    self.stuck = 0
+                    curr = trial
+                    while not rospy.is_shutdown():
+                        temp_curr = self.old_moves[-1][0]
+                        if abs(curr-temp_curr) != 2:
+                            move = self.old_moves[-1]
+                            self.old_moves = self.old_moves[:-1]
+                            break
                         self.old_moves = self.old_moves[:-1]
-                        break
+                        curr = cp.deepcopy(temp_curr)
+                        self.rate.sleep()
+                else:
+                    move = self.old_moves[-1]
                     self.old_moves = self.old_moves[:-1]
-                    curr = cp.deepcopy(temp_curr)
-                    self.rate.sleep()
-            else:
-                move = self.old_moves[-1]
-                self.old_moves = self.old_moves[:-1]
 
-            target.position.y = move[1].pose.position.y
-            target.position.x = move[1].pose.position.x
-            self.blacklist = [False,False,False,False,False]
-            self.blacklist[move[0]] = True
-            print "blacklisted: " + self.primitives[move[0]]
+                target.position.y = move[1].pose.position.y
+                target.position.x = move[1].pose.position.x
+                self.blacklist = [False,False,False,False,False]
+                self.blacklist[move[0]] = True
+                print "blacklisted: " + self.primitives[move[0]]
+            except:
+                self.hard_reset()
         else:
             self.blacklist = [False,False,False,False,False]
             self.slam.accuracy = 0.2
@@ -484,6 +503,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose.pose.orientation.y = 0
         self.pose.pose.orientation.z = 0.707 
         self.pose.pose.orientation.w = 0.707
+        self.slam.Rreset_proxy()
+        self.reset_odometry()
         self.slam.reset_proxy()
         self._takeoff()
         self.old_moves = [] 
