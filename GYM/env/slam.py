@@ -188,7 +188,7 @@ class Slam():
         resolution = self.map.info.resolution
         grid_pos = self.convert_to_grid_cells(input_pos)
         #radius = 0.3556
-        radius = 0.375
+        radius = 0.4
         #radius = 0.5
         input_pos.pose.position.x = input_pos.pose.position.x + radius
         s1 = self.convert_to_grid_cells(input_pos)[0]
@@ -225,7 +225,7 @@ class Slam():
                 uobst+=1
         #print [uobst/float(len(bubble)), uobst,len(bubble)]
         try:
-            return uobst/float(len(bubble)) > 0.03
+            return uobst/float(len(bubble)) > 0.02
         except:
             return True
 

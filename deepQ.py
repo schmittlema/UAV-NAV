@@ -18,13 +18,8 @@ np.set_printoptions(threshold='nan')
 #PARAMETERS
 #-------------------------------------------------------------------------
 
-#Network Structure: feed forward 4x10x10x10x5
-#Input = x,y position and velocity
-#Output = Q values for forward, back, left, right, hold
-
 #I mean actions
-n_classes = 6
-input_size = 2500
+n_classes = 5
 
 buff_size = 1000000
 batch_size = 32 #How many experiences to use for each training step.
@@ -32,43 +27,39 @@ update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
-anneling_steps = 500000 #How many steps of training to reduce startE to endE.
-num_episodes = 10000 #How many episodes of game environment to train network with.
+anneling_steps = 40000 #How many steps of training to reduce startE to endE.
+num_episodes = 720 #How many episodes of game environment to train network with.
 load_model = False #Whether to load a saved model.
-path = "../log/logfile-exp-6" #The path to save our model to.
-h_size = 512 #The size of the final convolutional layer before splitting it into Advantage and Value streams.
+path = "/root/log-obst/logfile-exp-0" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
-steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
+steps_till_training = 1000 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.2
 #--------------------------------------------------------------------------
 
 class Qnetwork():
     def __init__(self):
-        #The network recieves a frame from the game, flattened into an array.
-        #It then resizes it and processes it through four convolutional layers.
-	self.data = tf.placeholder('float',[None,input_size],name="input") #input data
-	with tf.name_scope("layer1"):
-		hidden_1_layer = {'weights':tf.Variable(tf.random_normal([input_size,n_nodes_h1]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h1]),name="B")}
-		l1 = tf.add(tf.matmul(self.data,hidden_1_layer['weights']),hidden_1_layer['biases'])
-		l1 = tf.nn.relu(l1)
+        self.data = tf.placeholder(shape=[None,2500],dtype=tf.float32)
+        self.input =  tf.reshape(self.data,shape=[-1,50,50,1]) 
+        with tf.name_scope("layer1"):
+                self.conv1 = slim.conv2d(inputs=self.input,num_outputs=32,kernel_size=[8,8],stride=[4,4],padding='VALID', biases_initializer=None)
 
 	with tf.name_scope("layer2"):
-		hidden_2_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h1,n_nodes_h2]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h2]),name="B")}
-		l2 = tf.add(tf.matmul(l1,hidden_2_layer['weights']),hidden_2_layer['biases'])
-		l2 = tf.nn.relu(l2)
-    
-	with tf.name_scope("layer3"):
-		hidden_3_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h2,n_nodes_h3]),name="W"),'biases':tf.Variable(tf.random_normal([n_nodes_h3]),name="B")}
-		l3 = tf.add(tf.matmul(l2,hidden_3_layer['weights']),hidden_3_layer['biases'])
-		l3 = tf.nn.relu(l3)
+                self.conv2 = slim.conv2d(inputs=self.conv1,num_outputs=64,kernel_size=[4,4],stride=[2,2],padding='VALID', biases_initializer=None)
 
-	with tf.name_scope("output_layer"):
-		output_layer = {'weights':tf.Variable(tf.random_normal([n_nodes_h3,n_classes]),name="W"),'biases':tf.Variable(tf.random_normal([n_classes]),name="B")}
-    
-    	self.Qout = tf.add(tf.matmul(l3,output_layer['weights']),output_layer['biases'])
+        #with tf.name_scope("layer3"):
+        #        self.conv3 = slim.conv2d(inputs=self.conv2,num_outputs=64,kernel_size=[4,4],stride=[2,2],padding='VALID', biases_initializer=None)
+
+        #with tf.name_scope("layer4"):
+        #        self.conv4 = slim.conv2d(inputs=self.conv3,num_outputs=n_classes,kernel_size=[2,2],stride=[1,1],padding='VALID', biases_initializer=None)
+
+        with tf.name_scope("layer3"):
+                self.feed_forward1 = slim.fully_connected(tf.reshape(self.conv2,[-1,4608]),4608)
+
+        with tf.name_scope("layer4"):
+                self.Qout = slim.fully_connected(self.feed_forward1,n_classes)
+                
 		
-		#Max q val (best action)
         self.predict = tf.argmax(self.Qout,1)
         
         #Below we obtain the loss by taking the sum of squares difference between the target and prediction Q values.
@@ -99,7 +90,11 @@ class experience_buffer():
         self.buffer.extend(experience)
             
     def sample(self,size):
+        #print np.array(random.sample(self.buffer,size)).shape
         return np.reshape(np.array(random.sample(self.buffer,size)),[size,5])
+
+def processState(states):
+    return np.reshape(states,[2500])
 
 
 def updateTargetGraph(tfVars,tau):
@@ -137,10 +132,17 @@ def main():
 	rAll_t = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
 	successes = tf.Variable(0)
+	collisions = tf.Variable(0)
+	auto_steps = tf.Variable(0)
+	network_steps = tf.Variable(0)
 
 	tf.summary.scalar('reward',rAll_t)
 	tf.summary.scalar('episode_length',j_t)
 	tf.summary.scalar('number_of_successes_total',successes)
+	tf.summary.scalar('number_of_collisions',collisions)
+
+	tf.summary.scalar('number_of_autopilot_steps',auto_steps)
+	tf.summary.scalar('number_of_network_steps',network_steps)
 
 	#Make a path for our model to be saved in.
 	if not os.path.exists(path):
@@ -164,6 +166,7 @@ def main():
 	        episodeBuffer = experience_buffer()
 		#Reset environment and get first new observation
                 s = env.reset()
+                s = processState(s)
                 d = False
 		rAll = 0
 		j=0
@@ -178,8 +181,10 @@ def main():
                         else:
                             a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
                         s1,r,d,info = env.step(a)
+                        s1 = processState(s1)
                         total_steps += 1
-                        episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
+                        if env.env.network_stepped:
+                            episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
                         
                         
                         if e > endE and total_steps > steps_till_training:
@@ -199,13 +204,13 @@ def main():
                             updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
                         rAll+=r
                         s = s1
-		    
+                        
                 myBuffer.add(episodeBuffer.buffer)
                 jList.append(j)
                 rList.append(rAll)
 
                 #Periodically save the model. 
-		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes)])
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps),tf.assign(network_steps,env.env.network_steps)])
 		summury = sess.run(merged_summary)
 		writer.add_summary(summury,i)
 		writer.flush()
@@ -219,6 +224,7 @@ def main():
 	    env.close()
 	    env.env.close()
 	    writer.close()
+            print "DONE!"
 
 if __name__ == "__main__":
     env = gym.make('GazeboQuadEnv-v0')
@@ -228,4 +234,4 @@ if __name__ == "__main__":
     t.start()
 
     env.reset()
-    env.env.start()
+env.env.start()

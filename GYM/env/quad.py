@@ -25,6 +25,7 @@ from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
 from std_srvs.srv import Empty
 from VelocityController import VelocityController
 import cv2
+from cv_bridge import CvBridge, CvBridgeError
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -83,7 +84,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "mpsl.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
-        rospy.Subscriber('/stereo/left/image_mono', Image, callback=self.callback_observe)
+        rospy.Subscriber('/stereo/depth_raw', Image, callback=self.callback_observe)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -124,9 +125,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose.pose.orientation.z = 0.707 
         self.pose.pose.orientation.w = 0.707
         self.stuck = 0
+        self.network_stepped = True
 
         self.started = False
         self.rate = rospy.Rate(10)
+        self.collisions = 0
+        self.auto_steps = 0
+        self.network_steps = 0
 
         self.pause_sim = False
         self.nowait = True
@@ -156,18 +161,21 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.next_move = False
         self.depth_cam = False
         self.mono_image = False
+        self.bridge = CvBridge()
 
     def pos_cb(self,msg):
         self.cur_pose = msg
 
     def callback_observe(self,msg):
-        print msg.data
-        print msg.data.size 
-        if len(msg.data) > 800:
-            raw_image = np.reshape(np.array(msg.data),[800,800])
-            resized = cpv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
-            self.mono_image = resized.flatten()
-            print self.mono_image
+        try:
+            raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
+            resized = cv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
+        except CvBridgeError, e:
+            print e
+        self.mono_image = resized.flatten()
+        #For debugging
+        #cv2.imshow('test',resized)
+        #cv2.waitKey(0)
 
     def filter_correct(self):
         self.pose.pose.position.z = 0
@@ -197,7 +205,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.slam.map_publisher.publish(self.slam.map)
             if not self.temp_pause:
                 self.local_pos.publish(self.pose)
-                if self.at_target(self.cur_pose,self.pose,0.3) and self.dangerous(self.action):
+                if self.at_target(self.cur_pose,self.pose,0.4) and self.dangerous(self.action):
                     print "preemptive step"
                     self.next_move= True
             self.rate.sleep()
@@ -226,8 +234,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print "COLLISION"
 
     def observe(self):
-        #return self.depth_image
-        return 1
+        return self.mono_image
 
     def reset_quad(self):
         modelstate = ModelState()
@@ -338,90 +345,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def back_forth(self,trial):
        return (trial==4 and self.old_moves[-1][0] == 2) or (trial == 2 and self.old_moves[-1][0] == 4)
 
-    def auto_reset(self):
-        self.pose.pose.position.z = 2
-        self.heading = self.heading * -1.0
-        self.pose.pose.orientation.z = 0
-        switch  =self.pose.pose.orientation.z * -1.0
-        if self.reverse:
-            self.reverse = False
-            self.slam.flip = False
-
-            self.pose.pose.position.x = 0
-            self.pose.pose.position.y = 0
-            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
-                self.rate.sleep()
-            self.pose.pose.orientation.z =self.pose.pose.orientation.z * -1.0
-            while not rospy.is_shutdown() and abs(self.cur_pose.pose.orientation.z -self.pose.pose.orientation.z)> 0.01:
-                self.rate.sleep()
-            self.slam.reset_proxy()
-
-            self.pose.pose.position.x = 0
-            self.pose.pose.position.y = 2.5
-
-            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.2):
-                self.rate.sleep()
-
-            self.old_moves = [] 
-            self.old_move = PoseStamped()
-            self.old_move.pose.position.x = 0
-            self.old_move.pose.position.y = 0
-            self.old_moves.append([0,self.old_move])
-        else:
-            waypoints = []
-            waypoints2 = []
-            step = cp.deepcopy(0-self.cur_pose.pose.position.x)/10
-            current = cp.deepcopy(self.cur_pose.pose.position.x)
-            step2 = (-2*self.cur_pose.pose.orientation.z)/10
-            print step2,self.cur_pose.pose.orientation.z
-            current2 = cp.deepcopy(self.cur_pose.pose.orientation.z)
-            for x in range(10):
-                waypoints.append(current)
-                waypoints2.append(current2)
-                current2 = current2+step2
-                current = current+step
-
-            print waypoints
-            print waypoints2
-            self.pose.pose.position.y = 44
-            self.pose.pose.position.x = waypoints[0]
-            self.slam.reset_proxy()
-            i = 0
-            while not rospy.is_shutdown():
-                if self.at_target(self.cur_pose,self.pose,0.1):
-                    try:
-                        self.pose.pose.position.x = waypoints[i]
-                        #self.pose.pose.orientation.z = waypoints2[i]
-                    except:
-                        break
-                    if i > 4:
-                        self.pose.pose.orientation.z = switch
-                    i+=1
-                self.rate.sleep()
-
-            self.reverse = True
-            self.slam.flip = True
-
-            self.pose.pose.position.x = 0
-            self.pose.pose.position.y = 45
-
-            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.2):
-                self.rate.sleep()
-
-            self.old_moves = [] 
-            self.old_move = PoseStamped()
-            self.old_move.pose.position.z = 2
-            self.old_move.pose.position.x = 0
-            self.old_move.pose.position.y = 45
-            self.old_moves.append([0,self.old_move])
-
-
     def detect_done(self,reward):
         done = False
         if self.collision:
 	    print "CRASH"
             done = True
             self.steps = 0
+            self.collisions += 1
 	    self.hard_reset()
         if (not self.reverse and self.cur_pose.pose.position.y > 40) or self.cur_pose.pose.position.y < 0:
 	    print "GOAL"
@@ -444,19 +374,31 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         if self.dangerous(action):
             print "autopilot"
+            self.auto_steps += 1
             action = self.slam.auto_pilot_step(self.heading,self.blacklist,self.slam.sep_dict)
+            self.network_stepped = False
             if self.reverse:
                 action = self.slam.auto_pilot_step(self.heading,self.blacklist,self.slam.rsep_dict)
         else:
             print "deep learner"
+            self.network_steps += 1
+            self.network_stepped = True
 
         self.action = action
-        print self.primitives[action]
         self.pose = self.modify_target(action)
 
         self.rate.sleep()
         observation = self.observe()
         reward = self.get_reward(action)
+        print self.primitives[action],reward
+
+        while not self.at_target(self.cur_pose,self.pose,0.4) or self.collision:
+            self.rate.sleep()
+
+        if self.next_move:
+            reward = -10
+            self.network_steps = self.network_steps - 1
+            self.auto_steps += 1
 
         done,reward = self.detect_done(reward) 
 
@@ -467,7 +409,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self,action):
-        return 1
+        if not self.network_stepped:
+            return -10
+        else:
+            if action == 0:
+                return 1
+            if action == 1 or action == 3:
+                return 0.5
+            else:
+                return 0.25
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
