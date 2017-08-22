@@ -67,7 +67,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.local_pos.publish(self.pose)
             self.rate.sleep()
 
-        self.collision = False
 
         if not self.depth_cam:
             self.pose.pose.position.y = 2.5
@@ -76,6 +75,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 self.rate.sleep()
 
 
+        self.collision = False
         self.started = True
         print self.started
         print "Initialized"
@@ -207,7 +207,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.slam.map_publisher.publish(self.slam.map)
             if not self.temp_pause:
                 self.local_pos.publish(self.pose)
-                if self.at_target(self.cur_pose,self.pose,0.4) and self.dangerous(self.action):
+                if self.at_target(self.cur_pose,self.pose,0.4) and self.dangerous(self.action) and self.action != -1:
                     print "preemptive step"
                     self.next_move= True
             self.rate.sleep()
@@ -304,32 +304,39 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             target.position.x = self.reverse_add(self.cur_pose.pose.position.x,0.75)
 
         if trial == -1 or self.stuck > 4:
-            try:
-                self.slam.accuracy = 0.1
-                if self.stuck > 4:
-                    print "Stuck!"
-                    self.stuck = 0
-                    curr = trial
-                    while not rospy.is_shutdown():
-                        temp_curr = self.old_moves[-1][0]
-                        if abs(curr-temp_curr) != 2:
-                            move = self.old_moves[-1]
+            self.action = -1
+            if not self.slam.check_collision(self.slam.rsept[0]):
+                target.position.y = self.cur_pose.pose.position.y - 1.0
+                target.position.x = self.cur_pose.pose.position.x
+                self.action = -2
+                print "REVERSE!"
+            else:
+                try:
+                    self.slam.accuracy = 0.1
+                    if self.stuck > 4:
+                        print "Stuck!"
+                        self.stuck = 0
+                        curr = trial
+                        while not rospy.is_shutdown():
+                            temp_curr = self.old_moves[-1][0]
+                            if abs(curr-temp_curr) != 2:
+                                move = self.old_moves[-1]
+                                self.old_moves = self.old_moves[:-1]
+                                break
                             self.old_moves = self.old_moves[:-1]
-                            break
+                            curr = cp.deepcopy(temp_curr)
+                            self.rate.sleep()
+                    else:
+                        move = self.old_moves[-1]
                         self.old_moves = self.old_moves[:-1]
-                        curr = cp.deepcopy(temp_curr)
-                        self.rate.sleep()
-                else:
-                    move = self.old_moves[-1]
-                    self.old_moves = self.old_moves[:-1]
 
-                target.position.y = move[1].pose.position.y
-                target.position.x = move[1].pose.position.x
-                self.blacklist = [False,False,False,False,False]
-                self.blacklist[move[0]] = True
-                print "blacklisted: " + self.primitives[move[0]]
-            except:
-                self.hard_reset()
+                    target.position.y = move[1].pose.position.y
+                    target.position.x = move[1].pose.position.x
+                    self.blacklist = [False,False,False,False,False]
+                    self.blacklist[move[0]] = True
+                    print "blacklisted: " + self.primitives[move[0]]
+                except:
+                    self.hard_reset()
         else:
             self.blacklist = [False,False,False,False,False]
             self.slam.accuracy = 0.2
@@ -365,10 +372,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return done,reward
 
     def dangerous(self,action):
-        if not self.reverse:
+        if action != -2:
             return self.slam.check_collision(self.slam.sep_dict[action]) or self.blacklist[action]
         else:
-            return self.slam.check_collision(self.slam.rsep_dict[action]) or self.blacklist[action]
+            return self.slam.check_collision(self.slam.rsep_dict[0]) or self.blacklist[action]
 
     def _step(self, action):
         self.steps += 1

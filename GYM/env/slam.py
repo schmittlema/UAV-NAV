@@ -47,9 +47,9 @@ class Slam():
         self.local_map = []
         self.pose = PoseStamped()
         self.grid_pose = []
-        self.tlibrary = self.read_dictionary()
+        self.tlibrary = self.read_dictionary('fake_trajectory.txt')
         self.sep_dict = self.seperate_dictionary(self.tlibrary)
-        self.rlibrary = self.reverse(self.tlibrary)
+        self.rlibrary = self.read_dictionary('backup_dict.txt')
         self.rsep_dict = self.seperate_dictionary(self.rlibrary)
         self.flip = False
         self.depth_cam = False
@@ -151,9 +151,10 @@ class Slam():
             output_array.append(self.convert_to_grid_cells(temp_pose))
         return output_array
 
-    def read_dictionary(self):
+    def read_dictionary(self,name):
         library = []
-        with open('GYM/env/fake_trajectory.txt','r') as infile:
+        filename = 'GYM/env/'+name
+        with open(filename,'r') as infile:
             for line in infile:
                 if line[0] == "{":
                     library.append(eval(line))
