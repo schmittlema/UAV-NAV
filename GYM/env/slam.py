@@ -57,7 +57,7 @@ class Slam():
     def call_map(self,msg):
         rospy.wait_for_message('/rtabmap/grid_map',PoseStamped,timeout=5)
         #rospy.wait_for_message('/stereo_odometer/pose',PoseStamped,timeout=5)
-        bubble = self.add_bubble(self.pose)
+        bubble = self.add_bubble(self.pose,0.3556)
         msg.data = np.reshape(np.array(msg.data),(-1,msg.info.width))
         #grid_pos = self.convert_to_grid_cells(self.pose)
         #msg.data[grid_pos[1]][grid_pos[0]] = 50
@@ -182,13 +182,12 @@ class Slam():
         cell_y = int((input_pos.pose.position.y - origin.position.y)/resolution)
         return [cell_x,cell_y]
 
-    def add_bubble(self,input_p):
+    def add_bubble(self,input_p,radius):
         input_pos = cp.deepcopy(input_p)
         bubble = []
         resolution = self.map.info.resolution
         grid_pos = self.convert_to_grid_cells(input_pos)
         #radius = 0.3556
-        radius = 0.4
         #radius = 0.5
         input_pos.pose.position.x = input_pos.pose.position.x + radius
         s1 = self.convert_to_grid_cells(input_pos)[0]
@@ -225,13 +224,13 @@ class Slam():
                 uobst+=1
         #print [uobst/float(len(bubble)), uobst,len(bubble)]
         try:
-            return uobst/float(len(bubble)) > 0.02
+            return uobst/float(len(bubble)) > 0.01
         except:
             return True
 
     def check_collision(self,points):
         for x in points:
-            bubble = self.add_bubble(self.convert_to_local_frame(self.convert_dict_to_pose(x)))
+            bubble = self.add_bubble(self.convert_to_local_frame(self.convert_dict_to_pose(x)),0.45)
             if self.bubble_overlap(bubble):
                 return True
         return False

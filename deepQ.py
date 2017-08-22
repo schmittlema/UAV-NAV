@@ -20,7 +20,6 @@ np.set_printoptions(threshold='nan')
 
 #I mean actions
 n_classes = 5
-
 buff_size = 1000000
 batch_size = 32 #How many experiences to use for each training step.
 update_freq = 4 #How often to perform a training step.
@@ -33,7 +32,7 @@ load_model = False #Whether to load a saved model.
 path = "/root/log-obst/logfile-exp-0" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
-steps_till_training = 1000 #Steps network takes before training so it has a batch to sample from
+steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.2
 #--------------------------------------------------------------------------
 
@@ -52,9 +51,8 @@ class Qnetwork():
 
         #with tf.name_scope("layer4"):
         #        self.conv4 = slim.conv2d(inputs=self.conv3,num_outputs=n_classes,kernel_size=[2,2],stride=[1,1],padding='VALID', biases_initializer=None)
-
         with tf.name_scope("layer3"):
-                self.feed_forward1 = slim.fully_connected(tf.reshape(self.conv2,[-1,4608]),4608)
+                self.feed_forward1 = slim.fully_connected(tf.reshape(self.conv2,[-1,1024]),1024)
 
         with tf.name_scope("layer4"):
                 self.Qout = slim.fully_connected(self.feed_forward1,n_classes)
@@ -77,8 +75,6 @@ class Qnetwork():
 		self.trainer = tf.train.AdamOptimizer(learning_rate=learningrate)
 		self.updateModel = self.trainer.minimize(self.loss)
 
-
-
 class experience_buffer():
     def __init__(self, buffer_size = buff_size):
         self.buffer = []
@@ -88,7 +84,7 @@ class experience_buffer():
         if len(self.buffer) + len(experience) >= self.buffer_size:
             self.buffer[0:(len(experience)+len(self.buffer))-self.buffer_size] = []
         self.buffer.extend(experience)
-            
+
     def sample(self,size):
         #print np.array(random.sample(self.buffer,size)).shape
         return np.reshape(np.array(random.sample(self.buffer,size)),[size,5])
@@ -183,8 +179,7 @@ def main():
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
                         total_steps += 1
-                        if env.env.network_stepped:
-                            episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
+                        episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
                         
                         
                         if e > endE and total_steps > steps_till_training:
@@ -202,6 +197,7 @@ def main():
                             _ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]),mainQN.targetQ:targetQ, mainQN.actions:trainBatch[:,1]})
                                 
                             updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
+                            print "TRAINED!"
                         rAll+=r
                         s = s1
                         
@@ -211,6 +207,8 @@ def main():
 
                 #Periodically save the model. 
 		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps),tf.assign(network_steps,env.env.network_steps)])
+                env.env.auto_steps = 0
+                env.env.network_steps = 0
 		summury = sess.run(merged_summary)
 		writer.add_summary(summury,i)
 		writer.flush()

@@ -32,11 +32,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def _takeoff(self):
 	print "Got Mavros"
         last_request = rospy.Time.now()
+        rospy.wait_for_service('mavros/set_mode')
+        rospy.wait_for_service('mavros/cmd/arming')
         while self.state.mode != "OFFBOARD" or not self.state.armed:
             if rospy.Time.now() - last_request > rospy.Duration.from_sec(5):
                 self._reset()
                 # Set OFFBOARD mode
-                rospy.wait_for_service('mavros/set_mode')
                 
                 #Must be sending points before connecting to offboard
                 for i in range(0,100):
@@ -45,19 +46,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     try:
                         success = self.mode_proxy(0,'OFFBOARD')
                         print success
+                        print "offboard enabled"
                     except rospy.ServiceException, e:
                         print ("mavros/set_mode service call failed: %s"%e)
-                    print "offboard enabled"
 
                 if not self.state.armed:
                     print "arming"
-                    rospy.wait_for_service('mavros/cmd/arming')
                     try:
                        success = self.arm_proxy(True)
                        print success
+                       print "armed"
                     except rospy.ServiceException, e:
                        print ("mavros/set_mode service call failed: %s"%e)
-                    print "armed"
                 last_request = rospy.Time.now()
             self.local_pos.publish(self.pose)
             self.rate.sleep()
@@ -66,6 +66,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
             self.local_pos.publish(self.pose)
             self.rate.sleep()
+
+        self.collision = False
 
         if not self.depth_cam:
             self.pose.pose.position.y = 2.5
@@ -392,7 +394,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         reward = self.get_reward(action)
         print self.primitives[action],reward
 
-        while not self.at_target(self.cur_pose,self.pose,0.4) or self.collision:
+        while not self.at_target(self.cur_pose,self.pose,0.4) and not self.collision:
             self.rate.sleep()
 
         if self.next_move:
@@ -436,7 +438,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print ("mavros/set_mode service call failed: %s"%e)
 
     def hard_reset(self):
-        self.collision = False
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
         self.temp_pause = True
