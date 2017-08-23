@@ -38,7 +38,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             if rospy.Time.now() - last_request > rospy.Duration.from_sec(5):
                 self._reset()
                 # Set OFFBOARD mode
-                
                 #Must be sending points before connecting to offboard
                 for i in range(0,100):
                     self.local_pos.publish(self.pose)
@@ -59,10 +58,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     except rospy.ServiceException, e:
                        print ("mavros/set_mode service call failed: %s"%e)
                 last_request = rospy.Time.now()
-            self.local_pos.publish(self.pose)
             self.rate.sleep()
+        self.setup_position()
 
+
+    def setup_position(self):
         self.pose.pose.position.y = 0
+        if self.state.mode != "OFFBOARD" or not self.state.armed:
+            self._takeoff()
         while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
             self.local_pos.publish(self.pose)
             self.rate.sleep()
@@ -76,6 +79,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
 
         self.collision = False
+        self.stuck_position.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
         self.started = True
         print self.started
         print "Initialized"
@@ -164,6 +168,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.depth_cam = False
         self.mono_image = False
         self.bridge = CvBridge()
+        self.stuck_position = PoseStamped()
+        self.unstuck = 0
 
     def pos_cb(self,msg):
         self.cur_pose = msg
@@ -303,9 +309,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             target.position.y = self.reverse_add(self.cur_pose.pose.position.y,0.05)
             target.position.x = self.reverse_add(self.cur_pose.pose.position.x,0.75)
 
-        if trial == -1 or self.stuck > 4:
+        if trial == -1 or self.unstuck > 0:
             self.action = -1
-            if not self.slam.check_collision(self.slam.rsept[0]):
+            if self.unstuck < 1 and not self.slam.check_collision(self.slam.rsep_dict[0]):
                 target.position.y = self.cur_pose.pose.position.y - 1.0
                 target.position.x = self.cur_pose.pose.position.x
                 self.action = -2
@@ -313,19 +319,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             else:
                 try:
                     self.slam.accuracy = 0.1
-                    if self.stuck > 4:
-                        print "Stuck!"
+                    if self.unstuck > 0:
                         self.stuck = 0
-                        curr = trial
-                        while not rospy.is_shutdown():
-                            temp_curr = self.old_moves[-1][0]
-                            if abs(curr-temp_curr) != 2:
-                                move = self.old_moves[-1]
-                                self.old_moves = self.old_moves[:-1]
-                                break
-                            self.old_moves = self.old_moves[:-1]
-                            curr = cp.deepcopy(temp_curr)
-                            self.rate.sleep()
+                        print "Stuck!"
+                        move = self.old_moves[-1]
+                        self.old_moves = self.old_moves[:-1]
+                        self.unstuck = self.unstuck -1 
+                        self.stuck_position.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
                     else:
                         move = self.old_moves[-1]
                         self.old_moves = self.old_moves[:-1]
@@ -342,10 +342,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.slam.accuracy = 0.2
             self.old_move.pose.position.x = cp.deepcopy(self.cur_pose.pose.position.x)
             self.old_move.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
-            if self.back_forth(trial):
+            if self.cur_pose.pose.position.y - self.stuck_position.pose.position.y < 5:
                 self.stuck +=1
+                if self.stuck > 20:
+                    self.unstuck = 20
             else:
                 self.stuck = 0
+                self.stuck_position.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
+
             self.old_moves.append([trial,cp.deepcopy(self.old_move)])
 
         target_position.pose = target
@@ -375,7 +379,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if action != -2:
             return self.slam.check_collision(self.slam.sep_dict[action]) or self.blacklist[action]
         else:
-            return self.slam.check_collision(self.slam.rsep_dict[0]) or self.blacklist[action]
+            return self.slam.check_collision(self.slam.rsep_dict[0]) 
 
     def _step(self, action):
         self.steps += 1
@@ -401,7 +405,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         reward = self.get_reward(action)
         print self.primitives[action],reward
 
-        while not self.at_target(self.cur_pose,self.pose,0.4) and not self.collision:
+        while not self.at_target(self.cur_pose,self.pose,0.3) and not self.collision:
             self.rate.sleep()
 
         if self.next_move:
