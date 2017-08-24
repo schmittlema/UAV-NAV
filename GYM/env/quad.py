@@ -80,6 +80,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.collision = False
         self.stuck_position.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
+        self.stuck = 0
         self.started = True
         print self.started
         print "Initialized"
