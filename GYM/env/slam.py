@@ -248,7 +248,7 @@ class Slam():
         for p in paths:
             if not self.check_collision(p):
                 possible_paths[paths.index(p)] = most_direct[paths.index(p)]
-        #print possible_paths
+        print possible_paths
         for x in range(0,len(blacklist)):
             if blacklist[x] and x in possible_paths.keys():
                 possible_paths.pop(x)

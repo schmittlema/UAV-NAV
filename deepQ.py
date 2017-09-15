@@ -33,7 +33,7 @@ path = "/root/log-obst/logfile-exp-1" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
-accuracy = 0.2
+accuracy = 0.3
 #--------------------------------------------------------------------------
 
 class Qnetwork():

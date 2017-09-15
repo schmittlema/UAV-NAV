@@ -18,7 +18,7 @@ from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
 from sensor_msgs.msg import LaserScan, NavSatFix,Image
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
-from gazebo_msgs.srv import SetModelState
+from gazebo_msgs.srv import SetModelState, GetModelState
 
 from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
@@ -32,9 +32,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def _takeoff(self):
 	print "Got Mavros"
         last_request = rospy.Time.now()
-        rospy.wait_for_service('mavros/set_mode')
-        rospy.wait_for_service('mavros/cmd/arming')
-        while self.state.mode != "OFFBOARD" or not self.state.armed:
+        #rospy.wait_for_service('mavros/set_mode')
+        #rospy.wait_for_service('mavros/cmd/arming')
+        self.rate = rospy.Rate(0.5)
+        self.rate.sleep()
+        self.rate = rospy.Rate(10)
+        while not self.state.armed:
             if rospy.Time.now() - last_request > rospy.Duration.from_sec(5):
                 self._reset()
                 # Set OFFBOARD mode
@@ -58,22 +61,24 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     except rospy.ServiceException, e:
                        print ("mavros/set_mode service call failed: %s"%e)
                 last_request = rospy.Time.now()
+                self.local_pos.publish(self.pose)
             self.rate.sleep()
         self.setup_position()
 
 
     def setup_position(self):
+        print "Moving To Position..."
         self.pose.pose.position.y = 0
-        if self.state.mode != "OFFBOARD" or not self.state.armed:
-            self._takeoff()
-        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
+        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.3):
+            if self.collision:
+                self.hard_reset()
+                return
             self.local_pos.publish(self.pose)
             self.rate.sleep()
 
-
         if not self.depth_cam:
             self.pose.pose.position.y = 2.5
-            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.1):
+            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.3):
                 self.local_pos.publish(self.pose)
                 self.rate.sleep()
 
@@ -100,6 +105,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
 	
 	self.model_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+	self.model_position = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)
 
         self.reset_proxy = rospy.ServiceProxy('/gazebo/reset_world', Empty)
         
@@ -166,6 +172,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.reverse = False
         self.action = 0
         self.next_move = False
+        self.takeover = False
         self.depth_cam = False
         self.mono_image = False
         self.bridge = CvBridge()
@@ -187,10 +194,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #cv2.waitKey(0)
 
     def filter_correct(self):
-        self.pose.pose.position.z = 0
-        self.pose.pose.position.y = -1
-        self.pose.pose.position.x = 0
-        return self.at_target(self.cur_pose,self.pose,5)
+        pose = self.model_position('f450-stereo','world')
+        return self.at_target(self.cur_pose,pose,5)
 
     def at_target(self,cur,target,accuracy):
         return (abs(cur.pose.position.x - target.pose.position.x) < accuracy) and (abs(cur.pose.position.y - target.pose.position.y) < accuracy) and (abs(cur.pose.position.z - target.pose.position.z) <accuracy) 
@@ -214,8 +219,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.slam.map_publisher.publish(self.slam.map)
             if not self.temp_pause:
                 self.local_pos.publish(self.pose)
-                if self.at_target(self.cur_pose,self.pose,0.4) and self.dangerous(self.action) and self.action != -1:
-                    print "preemptive step"
+                if self.at_target(self.cur_pose,self.pose,0.5) and self.dangerous(self.action) and self.action != -1:
+                    print "preemptive step!"
                     self.next_move= True
             self.rate.sleep()
             self.pauser()
@@ -311,6 +316,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             target.position.x = self.reverse_add(self.cur_pose.pose.position.x,0.75)
 
         if trial == -1 or self.unstuck > 0:
+            self.takeover = True
             self.action = -1
             if self.unstuck < 1 and not self.slam.check_collision(self.slam.rsep_dict[0]):
                 target.position.y = self.cur_pose.pose.position.y - 1.0
@@ -337,13 +343,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     self.blacklist[move[0]] = True
                     print "blacklisted: " + self.primitives[move[0]]
                 except:
+                    print self.blacklist,self.unstuck,self.stuck,trial
                     self.hard_reset()
+                    return self.pose
         else:
             self.blacklist = [False,False,False,False,False]
             self.slam.accuracy = 0.2
             self.old_move.pose.position.x = cp.deepcopy(self.cur_pose.pose.position.x)
             self.old_move.pose.position.y = cp.deepcopy(self.cur_pose.pose.position.y)
-            if self.cur_pose.pose.position.y - self.stuck_position.pose.position.y < 5:
+            if self.cur_pose.pose.position.y - self.stuck_position.pose.position.y < 3:
                 self.stuck +=1
                 if self.stuck > 20:
                     self.unstuck = 20
@@ -367,12 +375,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
             self.collisions += 1
 	    self.hard_reset()
-        if (not self.reverse and self.cur_pose.pose.position.y > 40) or self.cur_pose.pose.position.y < 0:
+        if self.cur_pose.pose.position.y > 40 or self.cur_pose.pose.position.y < 0:
 	    print "GOAL"
             done = True
             self.steps = 0
 	    self.successes += 1
-            #self.auto_reset()
             self.hard_reset()
         return done,reward
 
@@ -384,6 +391,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def _step(self, action):
         self.steps += 1
+        self.takeover = False
         #self.pause_sim = 0
 
         if self.dangerous(action):
@@ -391,14 +399,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.auto_steps += 1
             action = self.slam.auto_pilot_step(self.heading,self.blacklist,self.slam.sep_dict)
             self.network_stepped = False
-            if self.reverse:
-                action = self.slam.auto_pilot_step(self.heading,self.blacklist,self.slam.rsep_dict)
         else:
             print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
 
-        self.action = action
+        self.action = cp.deepcopy(action)
         self.pose = self.modify_target(action)
 
         self.rate.sleep()
@@ -406,10 +412,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         reward = self.get_reward(action)
         print self.primitives[action],reward
 
-        while not self.at_target(self.cur_pose,self.pose,0.3) and not self.collision:
+        while not self.at_target(self.cur_pose,self.pose,0.4) and not self.collision:
             self.rate.sleep()
 
-        if self.next_move:
+        if self.next_move or self.takeover:
             reward = -10
             self.network_steps = self.network_steps - 1
             self.auto_steps += 1
@@ -449,9 +455,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             except rospy.ServiceException, e:
                 print ("mavros/set_mode service call failed: %s"%e)
 
+
     def hard_reset(self):
         # Resets the state of the environment and returns an initial observation.
         print "resetting"
+        self.collision = False
         self.temp_pause = True
         self.land()
         while self.cur_pose.pose.position.z > 0.2:
@@ -459,8 +467,22 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.reset_quad()
         while not self.filter_correct():
             self.rate.sleep()
+
+        self.blacklist = [False,False,False,False,False]
+        self.unstuck = 0
+
+        if self.state.armed:
+            print "disarming"
+            try:
+               success = self.arm_proxy(False)
+               print success
+               print "disarmed"
+            except rospy.ServiceException, e:
+               print ("mavros/set_mode service call failed: %s"%e)
+
+        self.action = 0
         self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 0
+        self.pose.pose.position.y = -2
         self.pose.pose.position.z = 2
         self.pose.pose.orientation.x = 0
         self.pose.pose.orientation.y = 0
@@ -479,4 +501,5 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.temp_pause = False
 
         print "hard world reset"
+        print self.action
         return self.observe()
