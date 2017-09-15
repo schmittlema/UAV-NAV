@@ -21,8 +21,8 @@ class a_PID:
         z = z + 9.8
         z = 1 if z ==0 else z
 
-        roll = math.atan2(y,z)
-        pitch = math.atan2(x,z)
+        roll = math.atan2(x,z)
+        pitch = math.atan2(y,z)
 
         #Thresholding
         thresh = 45*math.pi/180.0

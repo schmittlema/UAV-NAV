@@ -110,16 +110,14 @@ except rospy.ServiceException, e:
 #Main method
 rate = rospy.Rate(10)
 print "Main Running"
-x_att = 0
-y_att = 0
 while not rospy.is_shutdown():
     thrust = pid.update(2,cur_pose.pose.position.z,cur_vel.twist.linear.z)
-    w,i,j,k = pid.generate_attitude_thrust(0,-.5,0)
+    w,i,j,k = pid.generate_attitude_thrust(0,-0.5,0)
     start_pos.pose.orientation.x = i
     start_pos.pose.orientation.y = j 
     start_pos.pose.orientation.z = k 
     start_pos.pose.orientation.w = w
-    attitude_pub.publish(start_pose)
+    att_pub.publish(start_pos)
     throttle_pub.publish(thrust)
     print "oh hey!"
     rate.sleep()
