@@ -26,13 +26,19 @@ import cv2
 from cv_bridge import CvBridge, CvBridgeError
 import matplotlib.pyplot as plt
 from VelocityController import VelocityController
+from attitude_PID import a_PID
 
 cur_pose = PoseStamped()
+cur_vel = TwistStamped()
 def pos_cb(msg):
     global cur_pose
     cur_pose = msg
 
-Setup
+def vel_cb(msg):
+    global cur_vel
+    cur_vel = msg
+
+#Setup
 launchfile = "mpsl.launch"
 subprocess.Popen("roscore")
 print ("Roscore launched!")
@@ -53,28 +59,20 @@ mode_proxy = rospy.ServiceProxy('mavros/set_mode', SetMode)
 
 arm_proxy = rospy.ServiceProxy('mavros/cmd/arming', CommandBool)
 
-takeoff_proxy = rospy.ServiceProxy('mavros/cmd/takeoff', CommandTOL)
-
 vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
 
 pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=pos_cb)
+vel_sub = rospy.Subscriber('/mavros/local_position/velocity', TwistStamped, callback=vel_cb)
+
+att_pub = rospy.Publisher('/mavros/setpoint_attitude/attitude',PoseStamped,queue_size=10)
+throttle_pub = rospy.Publisher('/mavros/setpoint_attitude/att_throttle',Float64,queue_size=10)
 
 start_pos = PoseStamped()
 start_pos.pose.position.x = 0
 start_pos.pose.position.y = 0
-start_pos.pose.position.z = 10
+start_pos.pose.position.z = 2
 
-target = Pose()
-target.position.x = 0
-target.position.y = 0
-target.position.z = 10
-
-
-vController = VelocityController()
-vController.setTarget(target)
-
-x_vel = -2
-y_vel = 0
+pid = a_PID()
 
 #Setting rpos
 print "Waiting for mavros..."
@@ -112,8 +110,16 @@ except rospy.ServiceException, e:
 #Main method
 rate = rospy.Rate(10)
 print "Main Running"
+x_att = 0
+y_att = 0
 while not rospy.is_shutdown():
-    #des_vel = vController.update(cur_pose,x_vel,y_vel)
-    #vel_pub.publish(des_vel)
-    local_pos.publish(start_pos)
+    thrust = pid.update(2,cur_pose.pose.position.z,cur_vel.twist.linear.z)
+    w,i,j,k = pid.generate_attitude_thrust(0,-.5,0)
+    start_pos.pose.orientation.x = i
+    start_pos.pose.orientation.y = j 
+    start_pos.pose.orientation.z = k 
+    start_pos.pose.orientation.w = w
+    attitude_pub.publish(start_pose)
+    throttle_pub.publish(thrust)
+    print "oh hey!"
     rate.sleep()
