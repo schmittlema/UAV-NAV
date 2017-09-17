@@ -16,8 +16,11 @@ class a_PID:
         self.minOut = minOut
         self.reset()
         self.lastTime = rospy.get_time()
+        self.roll = 0
+        self.pitch = 0
+        self.offset = 0.605
 
-    def generate_attitude_thrust(self,x,y,z):
+    def generate_attitude_thrust(self,x,y,z,state,z_vel):
         z = z + 9.8
         z = 1 if z ==0 else z
 
@@ -32,8 +35,13 @@ class a_PID:
         q_roll = Quaternion(axis=[0,1,0],angle=roll)
         q_pitch = Quaternion(axis=[1,0,0],angle=-1 *pitch)
         q_out = q_roll * q_pitch
+        self.roll = roll
+        self.pitch = pitch
 
-        return q_out 
+        thrust = self.update(2,state,z_vel)
+        w,i,j,k = q_out
+
+        return w,i,j,k,thrust 
 
     def update(self, target, state, z_vel):
         # u(t) = K_p e(t) + K_i \int_{0}^{t} e(t)dt + K_d {de}/{dt}
@@ -59,8 +67,8 @@ class a_PID:
         self.vel_error = self.vel_setpoint - z_vel 
         self.Dout = self.Kd * self.vel_error
 
-        tilted_offset = 0;
-        output = self.Pout + self.intError + self.Dout +tilted_offset
+        tilted_offset = self.offset/math.cos(self.pitch)/math.cos(self.roll)
+        output = self.Pout + self.intError + self.Dout + tilted_offset
 
         # Make sure output does not exceed maximum
         if (self.maxOut is not None and output > self.maxOut):
