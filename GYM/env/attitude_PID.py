@@ -32,7 +32,7 @@ class a_PID:
         roll = thresh if roll > thresh else -thresh if roll<-thresh else roll
         pitch = thresh if pitch > thresh else -thresh if pitch<-thresh else pitch
 
-        q_roll = Quaternion(axis=[0,1,0],angle=roll)
+        q_roll = Quaternion(axis=[0,1,0],angle=-1*roll)
         q_pitch = Quaternion(axis=[1,0,0],angle=-1 *pitch)
         q_out = q_roll * q_pitch
         self.roll = roll

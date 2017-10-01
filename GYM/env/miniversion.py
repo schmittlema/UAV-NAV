@@ -12,7 +12,7 @@ import gazebo_env
 from gym.utils import seeding
 
 from mavros_msgs.msg import OverrideRCIn, PositionTarget
-from sensor_msgs.msg import LaserScan, NavSatFix
+from sensor_msgs.msg import LaserScan, NavSatFix,Imu
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates
 
@@ -30,6 +30,7 @@ from attitude_PID import a_PID
 
 cur_pose = PoseStamped()
 cur_vel = TwistStamped()
+cur_imu = Imu()
 def pos_cb(msg):
     global cur_pose
     cur_pose = msg
@@ -37,6 +38,10 @@ def pos_cb(msg):
 def vel_cb(msg):
     global cur_vel
     cur_vel = msg
+
+def imu_cb(msg):
+    global cur_imu
+    cur_imu = msg
 
 #Setup
 launchfile = "mpsl.launch"
@@ -62,6 +67,9 @@ arm_proxy = rospy.ServiceProxy('mavros/cmd/arming', CommandBool)
 vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
 
 pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=pos_cb)
+
+imu_sub = rospy.Subscriber('/mavros/imu/data', Imu, callback=imu_cb)
+
 vel_sub = rospy.Subscriber('/mavros/local_position/velocity', TwistStamped, callback=vel_cb)
 
 att_pub = rospy.Publisher('/mavros/setpoint_attitude/attitude',PoseStamped,queue_size=10)
@@ -110,13 +118,19 @@ except rospy.ServiceException, e:
 #Main method
 rate = rospy.Rate(10)
 print "Main Running"
+direction = 5
+last_request = rospy.Time.now()
 while not rospy.is_shutdown():
-    w,i,j,k,thrust = pid.generate_attitude_thrust(0,-0.5,0,cur_pose.pose.position.z,cur_vel.twist.linear.z)
+    if rospy.Time.now() - last_request > rospy.Duration.from_sec(3):
+        direction = direction * -1
+        last_request = rospy.Time.now()
+    w,i,j,k,thrust = pid.generate_attitude_thrust(0,direction,0,cur_pose.pose.position.z,cur_vel.twist.linear.z)
     start_pos.pose.orientation.x = i
     start_pos.pose.orientation.y = j 
     start_pos.pose.orientation.z = k 
     start_pos.pose.orientation.w = w
     att_pub.publish(start_pos)
     throttle_pub.publish(thrust)
-    print "oh hey!"
+    print cur_imu
+    print cur_vel
     rate.sleep()
