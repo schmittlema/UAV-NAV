@@ -122,7 +122,7 @@ direction = 5
 last_request = rospy.Time.now()
 while not rospy.is_shutdown():
     if rospy.Time.now() - last_request > rospy.Duration.from_sec(3):
-        direction = direction * -1
+        #direction = direction * -1
         last_request = rospy.Time.now()
     w,i,j,k,thrust = pid.generate_attitude_thrust(0,direction,0,cur_pose.pose.position.z,cur_vel.twist.linear.z)
     start_pos.pose.orientation.x = i
