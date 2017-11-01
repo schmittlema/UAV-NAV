@@ -6,6 +6,7 @@ import roslaunch
 import subprocess
 import time
 import math
+import random
 
 from gym import utils, spaces
 import gazebo_env
@@ -29,6 +30,7 @@ from cv_bridge import CvBridge, CvBridgeError
 import matplotlib.pyplot as plt
 from VelocityController import VelocityController
 from attitude_PID import a_PID
+from vel_PID import v_PID
 
 cur_pose = PoseStamped()
 cur_vel = TwistStamped()
@@ -93,9 +95,14 @@ start_pos.pose.position.y = 0
 start_pos.pose.position.z = 2
 
 pid = a_PID()
-temp_pause = False
+vpid = v_PID()
 rate = rospy.Rate(10)
+records=[]
 
+def record(past):
+    if running and rospy.Time.now() - past> rospy.Duration.from_sec(.1):
+        records.append([index,cur_pose.pose.position,cur_vel.twist.linear.x,cur_imu.linear_acceleration.x])
+        
 def land():
     global state
     try:
@@ -124,9 +131,7 @@ def filter_correct():
 
 def hard_reset():
     # Resets the state of the environment and returns an initial observation.
-    global temp_pause
     print "resetting"
-    temp_pause = True
     land()
     while cur_pose.pose.position.z > 0.2:
         rate.sleep()
@@ -146,8 +151,8 @@ def hard_reset():
     start_pos.pose.position.x = 0 
     start_pos.pose.position.y = 0
     start_pos.pose.position.z = 2 
-    takeoff()
-    temp_pause = False
+    #for random walking
+    #takeoff()
     print "hard world reset"
 
 
@@ -190,21 +195,43 @@ def takeoff():
 
 #Main method
 takeoff()
-print "Main Running"
-direction = 5
+xacel = 0
+y_vel = 2
+running = False
+xacells = [-5,-2.5,0,2.5,5]
+start_position = PoseStamped()
+past_time = 0
+runs = 0
 last_request = rospy.Time.now()
-while not rospy.is_shutdown():
-    if not temp_pause:
-        if rospy.Time.now() - last_request > rospy.Duration.from_sec(5):
-            hard_reset()
-            last_request = rospy.Time.now()
-        w,i,j,k,thrust = pid.generate_attitude_thrust(0,direction,0,cur_pose.pose.position.z,cur_vel.twist.linear.z)
-        start_pos.pose.orientation.x = i
-        start_pos.pose.orientation.y = j 
-        start_pos.pose.orientation.z = k 
-        start_pos.pose.orientation.w = w
-        att_pub.publish(start_pos)
-        throttle_pub.publish(thrust)
-        print cur_imu
-        print cur_vel
+total_runs = 1000
+print "Main Running"
+while not rospy.is_shutdown() and runs < total_runs:
+    yacel = vpid.update(cur_vel.twist.linear.y,y_vel)
+    error = abs(cur_vel.twist.linear.y - y_vel)
+    record(past_time)
+    if error < 0.1 and not running:
+        past_time = rospy.Time.now()
+        start_position = cur_pose
+        index = random.randint(0,4)
+        xacel = xacells[index]
+        running = True
+        last_request = rospy.Time.now()
+    if running and rospy.Time.now() - last_request > rospy.Duration.from_sec(1):
+        running = False
+        runs = runs+1
+        #hard_reset()
+    w,i,j,k,thrust = pid.generate_attitude_thrust(xacel,yacel,0,cur_pose.pose.position.z,cur_vel.twist.linear.z)
+    start_pos.pose.orientation.x = i
+    start_pos.pose.orientation.y = j 
+    start_pos.pose.orientation.z = k 
+    start_pos.pose.orientation.w = w
+    att_pub.publish(start_pos)
+    throttle_pub.publish(thrust)
     rate.sleep()
+
+log = open("log_sample.txt","w")
+log.write(str(records))
+log.close()
+print "Done!"
+hard_reset()
+
