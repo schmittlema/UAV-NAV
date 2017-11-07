@@ -203,7 +203,7 @@ start_position = PoseStamped()
 past_time = 0
 runs = 0
 last_request = rospy.Time.now()
-total_runs = 1000
+total_runs = 10000
 print "Main Running"
 while not rospy.is_shutdown() and runs < total_runs:
     yacel = vpid.update(cur_vel.twist.linear.y,y_vel)
