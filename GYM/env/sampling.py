@@ -99,9 +99,9 @@ vpid = v_PID()
 rate = rospy.Rate(10)
 records=[]
 
-def record(past):
+def record(past,event_num):
     if running and rospy.Time.now() - past> rospy.Duration.from_sec(.1):
-        records.append([index,cur_pose.pose.position,cur_vel.twist.linear.x,cur_imu.linear_acceleration.x])
+        records.append([event_num,index,[cur_pose.pose.position.x - start_position.pose.position.x,cur_pose.pose.position.y - start_position.pose.position.y],cur_vel.twist.linear.x,cur_imu.linear_acceleration.x])
         
 def land():
     global state
@@ -208,7 +208,7 @@ print "Main Running"
 while not rospy.is_shutdown() and runs < total_runs:
     yacel = vpid.update(cur_vel.twist.linear.y,y_vel)
     error = abs(cur_vel.twist.linear.y - y_vel)
-    record(past_time)
+    record(past_time,runs)
     if error < 0.1 and not running:
         past_time = rospy.Time.now()
         start_position = cur_pose
@@ -217,9 +217,9 @@ while not rospy.is_shutdown() and runs < total_runs:
         running = True
         last_request = rospy.Time.now()
     if running and rospy.Time.now() - last_request > rospy.Duration.from_sec(1):
+        print runs
         running = False
         runs = runs+1
-        #hard_reset()
     w,i,j,k,thrust = pid.generate_attitude_thrust(xacel,yacel,0,cur_pose.pose.position.z,cur_vel.twist.linear.z)
     start_pos.pose.orientation.x = i
     start_pos.pose.orientation.y = j 
