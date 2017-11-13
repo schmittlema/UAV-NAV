@@ -1,2 +1,2 @@
 # UAV-NAV
-Matt Schmittle and Dr.Christopher Rasmussen
+Matt Schmittle and Dr. Christopher Rasmussen
