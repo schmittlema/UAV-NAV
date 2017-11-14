@@ -12,28 +12,33 @@ import gazebo_env
 from gym.utils import seeding
 
 from mavros_msgs.msg import OverrideRCIn, PositionTarget
-from sensor_msgs.msg import LaserScan, NavSatFix
+from sensor_msgs.msg import LaserScan, NavSatFix,PointCloud2
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates
 
 from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
 from std_srvs.srv import Empty
+from VelocityController import VelocityController
 
 #For Stereo
 from sensor_msgs.msg import Image
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
 import matplotlib.pyplot as plt
-from VelocityController import VelocityController
+import sensor_msgs.point_cloud2 as pc2
+import pcl
 
 cur_pose = PoseStamped()
 def pos_cb(msg):
     global cur_pose
     cur_pose = msg
 
-Setup
-launchfile = "mpsl.launch"
+def stereo_cb(msg):
+    points = pc2.read_points(msg,skip_nans=True,field_names=("x","y","z"))
+
+#Setup
+launchfile = "stereo.launch"
 subprocess.Popen("roscore")
 print ("Roscore launched!")
 
@@ -58,6 +63,8 @@ takeoff_proxy = rospy.ServiceProxy('mavros/cmd/takeoff', CommandTOL)
 vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
 
 pos_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=pos_cb)
+
+stereo_sub = rospy.Subscriber('/stereo/points2', PointCloud2, callback=stereo_cb)
 
 start_pos = PoseStamped()
 start_pos.pose.position.x = 0

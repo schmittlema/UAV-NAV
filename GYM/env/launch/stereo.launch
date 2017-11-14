@@ -46,6 +46,7 @@
     </include>
 
     <node pkg="tf" type="static_transform_publisher" name="stereo_optical_broadcaster" args="0.12 -0 0.06 -1.571 0 -1.571 /base_link /stereo_optical_frame 100" />
+    <group ns="stereo">
     <node pkg="stereo_image_proc" type="stereo_image_proc" name="stereo_image_proc">
       <param name="min_disparity" type="int" value="-5"/>
       <param name="speckle_range" type="int" value="50"/>
@@ -54,8 +55,20 @@
       <param name="prefilter_cap" value="63"/>
       <param name="correlation_window_size" value="25"/>
     </node>
+    </group>
+      <node pkg="nodelet" type="nodelet" name="pcl_manager" args="manager" output="screen" />
 
-    <node pkg="pcl_ros" type="pcl_ros" name="pcl_ros"/>
+      <!-- Run a VoxelGrid filter to clean NaNs and downsample the data -->
+      <node pkg="nodelet" type="nodelet" name="voxel_grid" args="load pcl/VoxelGrid pcl_manager" output="screen">
+        <remap from="~input" to="/stereo/points2" />
+        <rosparam>
+          filter_field_name: z
+          filter_limit_min: 0.01
+          filter_limit_max: 1.5
+          filter_limit_negative: False
+          leaf_size: 0.01
+        </rosparam>
+      </node>
 
     <include file="$(find px4)/launch/mavros.launch">
         <arg name="ns" value="$(arg ns)"/>
