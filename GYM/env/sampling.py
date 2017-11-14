@@ -26,7 +26,7 @@ from std_srvs.srv import Empty
 #For Stereo
 from sensor_msgs.msg import Image
 import cv2
-from cv_bridge import CvBridge, CvBridgeError
+#from cv_bridge import CvBridge, CvBridgeError
 import matplotlib.pyplot as plt
 from VelocityController import VelocityController
 from attitude_PID import a_PID
