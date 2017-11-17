@@ -13,6 +13,7 @@ import GYM
 import threading
 import time
 import cv2
+import rospy
 np.set_printoptions(threshold='nan')
 
 #PARAMETERS
@@ -34,6 +35,7 @@ tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.3
+step_length = 1
 #--------------------------------------------------------------------------
 
 class Qnetwork():
@@ -167,8 +169,9 @@ def main():
 		rAll = 0
 		j=0
                 #The Q-Network
+                last_request = rospy.Time.now() 
                 while not d: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
-                    if env.env.at_target(env.env.cur_pose,env.env.pose,accuracy) or env.env.next_move:
+                    if rospy.Time.now() - last_request > rospy.Duration.from_sec(step_length):
                         env.env.next_move = False
                         j+=1
                         #Choose an action by greedily (with e chance of random action) from the Q-network
@@ -200,6 +203,7 @@ def main():
                             print "TRAINED!"
                         rAll+=r
                         s = s1
+                        last_request = rospy.Time.now() 
                         
                 myBuffer.add(episodeBuffer.buffer)
                 jList.append(j)
