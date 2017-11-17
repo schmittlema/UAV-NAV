@@ -251,7 +251,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print "COLLISION"
 
     def observe(self):
-        return self.mono_image
+        #return self.mono_image
+        return np.zeros(2500)
 
     def reset_quad(self):
         modelstate = ModelState()
@@ -318,9 +319,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         observation = self.observe()
         reward = self.get_reward(action)
         print self.actions[action],reward
-
-        while not rospy.Time.now() - last_request > rospy.Duration.from_sec(self.step_length):
-            self.rate.sleep()
 
         done,reward = self.detect_done(reward) 
         return observation, reward,done,{}
