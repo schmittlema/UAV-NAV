@@ -251,8 +251,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print "COLLISION"
 
     def observe(self):
-        #return self.mono_image
-        return np.zeros(2500)
+        return self.mono_image
 
     def reset_quad(self):
         modelstate = ModelState()
