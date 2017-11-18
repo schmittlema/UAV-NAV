@@ -22,7 +22,7 @@
     <arg name="fcu_url" default="udp://:14540@localhost:14557"/>
 
     <arg name="debug" default="false"/>
-    <arg name="verbose" default="false"/>
+    <arg name="verbose" default="true"/>
     <arg name="paused" default="false"/>
 
     <include file="$(find px4)/launch/posix_sitl.launch">
