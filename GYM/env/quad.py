@@ -15,7 +15,7 @@ import gazebo_env
 from gym.utils import seeding
 
 from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
-from sensor_msgs.msg import LaserScan, NavSatFix,Image
+from sensor_msgs.msg import LaserScan, NavSatFix,Image,PointCloud2
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
 from gazebo_msgs.srv import SetModelState, GetModelState
@@ -30,6 +30,7 @@ from cv_bridge import CvBridge, CvBridgeError
 #For attitude control
 from attitude_PID import a_PID
 from vel_PID import v_PID
+import sensor_msgs.point_cloud2 as pc2
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -99,6 +100,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
         rospy.Subscriber('/stereo/depth_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('/stereo/points2', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -174,10 +176,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.x_accel = 0
         self.actions = [-5.0,-2.5,0,2.5,5.0]
         self.step_length = 1
-
+    
+        #PointCloud
+        self.p_array = []
 
     def pos_cb(self,msg):
         self.cur_pose = msg
+
+    def stereo_cb(self,msg):
+        points = pc2.read_points(msg,skip_nans=True)
+        self.p_array = []
+        for p in  points:
+            self.p_array.append(p)
 
     def vel_cb(self,msg):
         self.cur_vel = msg
