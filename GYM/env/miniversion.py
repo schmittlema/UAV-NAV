@@ -35,7 +35,12 @@ def pos_cb(msg):
     cur_pose = msg
 
 def stereo_cb(msg):
-    points = pc2.read_points(msg,skip_nans=True,field_names=("x","y","z"))
+    points = pc2.read_points(msg,skip_nans=True)
+    p_array = []
+    for p in  points:
+        p_array.append(p)
+    #if len(p_array) > 0:
+        #print p_array[0]
 
 #Setup
 launchfile = "stereo.launch"

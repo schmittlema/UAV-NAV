@@ -26,6 +26,7 @@ from std_srvs.srv import Empty
 from VelocityController import VelocityController
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
+import sensor_msgs.point_cloud2 as pc2
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -97,6 +98,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
         rospy.Subscriber('/stereo/depth_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('/stereo/points2', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -178,9 +180,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.bridge = CvBridge()
         self.stuck_position = PoseStamped()
         self.unstuck = 0
+        self.p_array = []
 
     def pos_cb(self,msg):
         self.cur_pose = msg
+
+    def stereo_cb(self,msg):
+        points = pc2.read_points(msg,skip_nans=True)
+        for p in  points:
+            self.p_array.append(p)
 
     def callback_observe(self,msg):
         try:
