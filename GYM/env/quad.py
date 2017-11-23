@@ -9,13 +9,14 @@ import math
 from random import randint
 from slam import Slam
 import copy as cp
+import ast
 
 from gym import utils, spaces
 import gazebo_env
 from gym.utils import seeding
 
 from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
-from sensor_msgs.msg import LaserScan, NavSatFix,Image,PointCloud2
+from sensor_msgs.msg import LaserScan, NavSatFix,Image,PointCloud2,Imu
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
 from gazebo_msgs.srv import SetModelState, GetModelState
@@ -127,6 +128,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.vel_sub = rospy.Subscriber('/mavros/local_position/velocity', TwistStamped, callback=self.vel_cb)
 
+        self.accel_sub = rospy.Subscriber('/mavros/imu/data', Imu, callback=self.imu_cb)
+
         rospy.Subscriber('/bumper_rotor0',ContactsState,self.callbackrotor)
         rospy.Subscriber('/bumper_rotor1',ContactsState,self.callbackrotor)
         rospy.Subscriber('/bumper_rotor2',ContactsState,self.callbackrotor)
@@ -168,6 +171,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.mono_image = False
         self.bridge = CvBridge()
 
+        #radius of drone + extra space
+        self.radius = 0.5
+
+        #Percent of danger allowed
+        self.threshold = 0.05
+
         #attitude related variables
         self.cur_vel = TwistStamped()
         self.pid = a_PID()
@@ -176,12 +185,28 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.x_accel = 0
         self.actions = [-5.0,-2.5,0,2.5,5.0]
         self.step_length = 1
+        self.cur_imu = Imu()
     
         #PointCloud
         self.p_array = []
 
+        #Reading In Samples
+        #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
+        #self.accel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
+        self.vel_rows = [-5,-4,-3,-2,-1,0,1,2,3,4,5]
+        self.accel_rows = [-5,-4,-3,-2,-1,0,1,2,3,4,5]
+
+        log = open("GYM/env/log_sample.txt","r")
+        array = log.readline()
+        self.array = self.process(ast.literal_eval(array),self.accel_rows,self.vel_rows)
+        log.close()
+
+
     def pos_cb(self,msg):
         self.cur_pose = msg
+
+    def imu_cb(self,msg):
+        self.cur_imu = msg
 
     def stereo_cb(self,msg):
         points = pc2.read_points(msg,skip_nans=True)
@@ -202,6 +227,50 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #For debugging
         #cv2.imshow('test',resized)
         #cv2.waitKey(0)
+
+    def process(self,array,accel_rows,vel_rows):
+        accel_range = len(accel_rows)
+        vel_range = len(vel_rows)
+	events = []
+	last_index = -1
+	for item in array:
+	    if last_index == item[0]:
+		events[last_index].append(item)
+	    else:
+		last_index = item[0]
+		events.append([])
+
+	base = [None]*accel_range
+	for i in range(accel_range):
+	    base[i]=[None]*vel_range
+
+	lookup_table = {'0':cp.deepcopy(base),'1':cp.deepcopy(base),'2':cp.deepcopy(base),'3':cp.deepcopy(base),'4':cp.deepcopy(base)}
+	section = lookup_table['1']
+	for event in events:
+	    section = lookup_table[str(event[0][1])]
+	    vel = round(event[0][3])
+	    accel = round(event[0][4])
+
+	    if abs(accel)>max(accel_rows):
+		if accel < 0:
+		    accel = -1* max(accel_rows)
+		else:
+		    accel = max(accel_rows)
+	    if abs(vel)>max(vel_rows):
+		if vel<0:
+		    vel = -1 * max(vel_rows)
+		else:
+		    vel = max(vel_rows)
+	    vpos = vel_rows.index(vel)
+	    apos = accel_rows.index(accel)
+	    if section[apos][vpos] == None:
+		section[apos][vpos] = []
+
+	    section[apos][vpos].append(event)
+	    lookup_table[str(event[0][1])] = section
+
+	return lookup_table
+
 
     def filter_correct(self):
         pose = self.model_position('f450-stereo','world')
@@ -305,18 +374,62 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.hard_reset()
         return done,reward
 
+    def bin(self,accel,vel,vel_rows,accel_rows):
+        vel = round(vel)
+        accel = round(accel)
+
+        if abs(accel)>max(accel_rows):
+            if accel < 0:
+                accel = -1* max(accel_rows)
+            else:
+                accel = max(accel_rows)
+        if abs(vel)>max(vel_rows):
+            if vel<0:
+                vel = -1 * max(vel_rows)
+            else:
+                vel = max(vel_rows)
+        vpos = vel_rows.index(vel)
+        apos = accel_rows.index(accel)
+        return vpos,apos
+
     def dangerous(self,action):
-        #TODO
-        return False
+        vpos,apos = self.bin(self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x,self.vel_rows,self.accel_rows)
+        points = self.array[str(action)][apos][vpos]
+        if points == None:
+            #Conservative behavior for moves that have no data
+            print "True",apos,vpos,self.actions[action] #self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x
+            return True
+        else:
+            if len(points) > 20:
+                points = points[:20]
+            local_percent = 0.0 
+            total_points = 0.0
+            for point in points:
+                for subpoint in point:
+                    total_points+=1.0
+                    position = [subpoint[2][0],subpoint[2][1]]
+                    for pc in self.p_array:
+                        dist = math.sqrt((pc[0] - position[0])**2 + (pc[1] - position[1])**2)
+                        if dist < self.radius:
+                            local_percent+=1.0
+                            break #Will only need 1 pc point to consider dangerous
+            print local_percent/total_points,local_percent,total_points
+            return local_percent/total_points > self.threshold
+
+
 
     def _step(self, action):
         self.steps += 1
 
-        if self.dangerous(action):
+        if True: #self.dangerous(action):
             print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
-            #TODO Change action
+            for a in range(len(self.actions)):
+                if not self.dangerous(a):
+                    action = a
+                    print self.actions[action]
+                    break #will take first safe action. Currently biased to left
         else:
             print "deep learner"
             self.network_steps += 1
