@@ -32,6 +32,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from attitude_PID import a_PID
 from vel_PID import v_PID
 import sensor_msgs.point_cloud2 as pc2
+import pcl
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -188,7 +189,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.cur_imu = Imu()
     
         #PointCloud
-        self.p_array = []
+        self.kdtree = 0
 
         #Reading In Samples
         #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
@@ -208,10 +209,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.cur_imu = msg
 
     def stereo_cb(self,msg):
-        points = pc2.read_points(msg,skip_nans=True)
-        self.p_array = []
+        points = pc2.read_points(msg,skip_nans=True,field_names=("x","y","z"))
+        p_array = []
         for p in  points:
-            self.p_array.append(p)
+            p_array.append(p)
+
+        pointcloud = pcl.PointCloud()
+        pointcloud.from_list(p_array)
+        if pointcloud.size > 0:
+            self.kd_tree = pcl.KdTreeFLANN(pointcloud)
+            self.check_nearest_neighbor(5,[1,1,1])
 
     def vel_cb(self,msg):
         self.cur_vel = msg
@@ -347,6 +354,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 break
             self.rate.sleep()
         return
+
+    def check_nearest_neighbor(self,radius,point):
+        point = pcl.PointCloud()
+        point.from_list([point])
+        nearest =  kd_tree.nearest_k_search_for_cloud(point,5)[1]
+
 
     def get_data(self):
         print "Waiting for mavros..."
