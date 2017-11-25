@@ -35,12 +35,18 @@ def pos_cb(msg):
     cur_pose = msg
 
 def stereo_cb(msg):
-    points = pc2.read_points(msg,skip_nans=True)
+    points = pc2.read_points(msg,skip_nans=True,field_names=("x","y","z"))
     p_array = []
     for p in  points:
         p_array.append(p)
-    #if len(p_array) > 0:
-        #print p_array[0]
+
+    pointcloud = pcl.PointCloud()
+    pointcloud.from_list(p_array)
+    if pointcloud.size > 0:
+        kd_tree = pcl.KdTreeFLANN(pointcloud)
+        point = pcl.PointCloud()
+        point.from_list([[1,1,1]])
+        print kd_tree.nearest_k_search_for_cloud(point,1)
 
 #Setup
 launchfile = "stereo.launch"
