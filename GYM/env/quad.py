@@ -201,7 +201,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.array = self.process(ast.literal_eval(array),self.accel_rows,self.vel_rows)
         log.close()
 
-
     def pos_cb(self,msg):
         self.cur_pose = msg
 
@@ -409,10 +408,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     total_points+=1.0
                     position = [subpoint[2][0],subpoint[2][1]]
                     for pc in self.p_array:
+                        #only look at relevant z coordinates
                         dist = math.sqrt((pc[0] - position[0])**2 + (pc[1] - position[1])**2)
                         if dist < self.radius:
-                            local_percent+=1.0
-                            break #Will only need 1 pc point to consider dangerous
+                            if abs(pc[3] -self.cur_pose.pose.position.z) < self.radius:
+                                local_percent+=1.0
+                                break #Will only need 1 pc point to consider dangerous
             print local_percent/total_points,local_percent,total_points
             return local_percent/total_points > self.threshold
 
@@ -425,16 +426,22 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
+            action = -1
             for a in range(len(self.actions)):
-                if not self.dangerous(a):
-                    action = a
-                    print self.actions[action]
-                    break #will take first safe action. Currently biased to left
+               if not self.dangerous(a):
+                  action = a
+                  print self.actions[action]
+                  break #will take first safe action. Currently biased to left
         else:
             print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
 
+        if action == -1:
+            self.y_vel = 0
+            self.x_accel = 0
+        else:
+            self.y_vel = 2
         self.rate.sleep()
         self.x_accel = self.actions[action]
         last_request = rospy.Time.now()
