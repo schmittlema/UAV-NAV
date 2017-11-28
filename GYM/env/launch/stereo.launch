@@ -11,7 +11,7 @@
 
     <arg name="est" default="lpe"/>
     <arg name="vehicle" default="f450-stereo"/>
-    <arg name="world" default="$(find mavlink_sitl_gazebo)/worlds/trainworld_0.world"/>
+    <arg name="world" default="$(find mavlink_sitl_gazebo)/worlds/empty.world"/>
     <arg name="sdf" default="$(find mavlink_sitl_gazebo)/models/$(arg vehicle)/$(arg vehicle).sdf"/>
 
     <arg name="rcS" default="$(find px4)/posix-configs/SITL/init/$(arg est)/$(arg vehicle)"/>
@@ -45,7 +45,6 @@
         <arg name="use_sim_time" value="true"/>
     </include>
 
-    <node pkg="tf" type="static_transform_publisher" name="stereo_optical_broadcaster" args="0.12 -0 0.06 -1.571 0 -1.571 /base_link /stereo_optical_frame 100" />
     <group ns="stereo">
         <node pkg="stereo_image_proc" type="stereo_image_proc" name="stereo_image_proc">
           <param name="min_disparity" type="int" value="-5"/>

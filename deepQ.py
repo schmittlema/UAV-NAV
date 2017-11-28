@@ -35,7 +35,7 @@ tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.3
-step_length = 1
+step_length = 0.1
 #--------------------------------------------------------------------------
 
 class Qnetwork():

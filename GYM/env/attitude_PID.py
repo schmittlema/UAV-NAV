@@ -3,6 +3,7 @@ import math
 from pyquaternion import Quaternion
 class a_PID:
     def __init__(self, Kp=0.6, Ki=0.6, Kd=0.5, maxI=0.07, maxOut=0.9,minOut=0.3):
+        #Kp = 0.6,Ki = 0.6, Kd = 0.5
         self.Kp = Kp
         self.Ki = Ki
         self.Kd = Kd
