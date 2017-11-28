@@ -82,13 +82,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 return
             self.local_pos.publish(self.pose)
             self.rate.sleep()
-
-        if not self.depth_cam:
-            self.pose.pose.position.y = 2.5
-            while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.3):
-                self.local_pos.publish(self.pose)
-                self.rate.sleep()
-
+        #while not rospy.is_shutdown():
+         #   print "Forward"
+          #  self.check_nearest_neighbor(self.radius,[0,5,0])
+           # print "Origin"
+            #print self.cur_pose.pose.position
+            #self.check_nearest_neighbor(self.radius,[0,0,0])
+            #self.local_pos.publish(self.pose)
+            #self.rate.sleep()
 
         self.collision = False
         self.started = True
@@ -173,7 +174,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.bridge = CvBridge()
 
         #radius of drone + extra space
-        self.radius = 0.5
+        self.radius = 1.0
 
         #Percent of danger allowed
         self.threshold = 0.05
@@ -185,7 +186,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.y_vel = 2
         self.x_accel = 0
         self.actions = [-5.0,-2.5,0,2.5,5.0]
-        self.step_length = 1
         self.cur_imu = Imu()
     
         #PointCloud
@@ -211,14 +211,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def stereo_cb(self,msg):
         points = pc2.read_points(msg,skip_nans=True,field_names=("x","y","z"))
         p_array = []
-        for p in  points:
+        for p in points:
             p_array.append(p)
 
         pointcloud = pcl.PointCloud()
         pointcloud.from_list(p_array)
         if pointcloud.size > 0:
             self.kd_tree = pcl.KdTreeFLANN(pointcloud)
-            self.check_nearest_neighbor(5,[1,1,1])
 
     def vel_cb(self,msg):
         self.cur_vel = msg
@@ -303,6 +302,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         while not rospy.is_shutdown():
             if not self.temp_pause:
                 yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
+                yacel = 0
                 w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
                 att_pos.pose.orientation.x = i
                 att_pos.pose.orientation.y = j 
@@ -356,10 +356,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return
 
     def check_nearest_neighbor(self,radius,point):
-        point = pcl.PointCloud()
-        point.from_list([point])
-        nearest =  kd_tree.nearest_k_search_for_cloud(point,5)[1]
-
+        pc_point = pcl.PointCloud()
+        point = [point[0],point[2],point[1]]
+        pc_point.from_list([point])
+        nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,5)[1][0]
+        #print nearest
+        for kpoint in nearest:
+            if kpoint < radius:
+                return True
+        return False
 
     def get_data(self):
         print "Waiting for mavros..."
@@ -378,7 +383,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
             self.collisions += 1
 	    self.hard_reset()
-        if self.cur_pose.pose.position.y > 40 or self.cur_pose.pose.position.y < 0:
+        if self.cur_pose.pose.position.y > 40:
 	    print "GOAL"
             done = True
             self.steps = 0
@@ -409,7 +414,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         points = self.array[str(action)][apos][vpos]
         if points == None:
             #Conservative behavior for moves that have no data
-            print "True",apos,vpos,self.actions[action] #self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x
+            print "True",apos,vpos,self.actions[action] 
             return True
         else:
             if len(points) > 20:
@@ -419,14 +424,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             for point in points:
                 for subpoint in point:
                     total_points+=1.0
-                    position = [subpoint[2][0],subpoint[2][1]]
-                    for pc in self.p_array:
-                        #only look at relevant z coordinates
-                        dist = math.sqrt((pc[0] - position[0])**2 + (pc[1] - position[1])**2)
-                        if dist < self.radius:
-                            if abs(pc[3] -self.cur_pose.pose.position.z) < self.radius:
-                                local_percent+=1.0
-                                break #Will only need 1 pc point to consider dangerous
+                    position = [subpoint[2][0],subpoint[2][1],0]
+                    if self.check_nearest_neighbor(self.radius,position):
+                        local_percent+=1
+
             print local_percent/total_points,local_percent,total_points
             return local_percent/total_points > self.threshold
 
@@ -450,17 +451,20 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.network_steps += 1
             self.network_stepped = True
 
+        action = -1
+
         if action == -1:
             self.y_vel = 0
-            self.x_accel = 0
+            action = 2
+            print "stop"
         else:
             self.y_vel = 2
+
         self.rate.sleep()
         self.x_accel = self.actions[action]
         last_request = rospy.Time.now()
         observation = self.observe()
         reward = self.get_reward(action)
-        print self.actions[action],reward
 
         done,reward = self.detect_done(reward) 
         return observation, reward,done,{}
