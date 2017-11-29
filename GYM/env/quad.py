@@ -83,14 +83,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 return
             self.local_pos.publish(self.pose)
             self.rate.sleep()
-        #while not rospy.is_shutdown():
-         #   print "Forward"
-          #  self.check_nearest_neighbor(self.radius,[0,5,0])
-           # print "Origin"
-            #print self.cur_pose.pose.position
-            #self.check_nearest_neighbor(self.radius,[0,0,0])
-            #self.local_pos.publish(self.pose)
-            #self.rate.sleep()
+
+            #self.check_nearest_neighbor(self.radius,[0,1,0])
 
         self.collision = False
         self.started = True
@@ -100,11 +94,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def __init__(self):
         # Launch the simulation with the given launchfile name
-        gazebo_env.GazeboEnv.__init__(self, "stereo.launch")    
+        gazebo_env.GazeboEnv.__init__(self, "dmpsl.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
         rospy.Subscriber('/stereo/depth_raw', Image, callback=self.callback_observe)
-        rospy.Subscriber('/stereo/points2', PointCloud2, callback=self.stereo_cb)
+        rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -175,10 +169,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.bridge = CvBridge()
 
         #radius of drone + extra space
-        self.radius = 0.7
+        self.radius = 1.5
 
         #Percent of danger allowed
-        self.threshold = 0.05
+        self.threshold = 0.01
 
         #attitude related variables
         self.cur_vel = TwistStamped()
@@ -279,7 +273,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
 
     def filter_correct(self):
-        pose = self.model_position('f450-stereo','world')
+        pose = self.model_position('f450-depth','world')
         return self.at_target(self.cur_pose,pose,5)
 
     def at_target(self,cur,target,accuracy):
@@ -336,12 +330,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print "COLLISION"
 
     def observe(self):
-        #return np.zeros(2500)
-        return self.mono_image
+        return np.zeros(2500)
+        #return self.mono_image
 
     def reset_quad(self):
         modelstate = ModelState()
-        modelstate.model_name = "f450-stereo"
+        modelstate.model_name = "f450-depth"
         modelstate.pose.position.z = 0.1
         modelstate.pose.position.x = 0
         modelstate.pose.position.y = -2
@@ -359,18 +353,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def orient_point(self,point):
         orientation = self.cur_imu.orientation 
         roll,pitch,yaw = euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])
+        #print pitch,point[1],point[1]*math.cos(pitch)
         point[0] = point[0]*math.cos(roll)
-        point[1] = point[2]*math.cos(pitch)
-        point[2] = point[2]*(math.sin(pitch)+math.sin(roll))
+        point[1] = point[1]*math.cos(pitch)
+        point[2] = point[1]*(math.sin(pitch)+math.sin(roll))
         return point
 
     def check_nearest_neighbor(self,radius,point):
         pc_point = pcl.PointCloud()
-        point = [point[0],point[2],point[1]]
         point = self.orient_point(point)
+        point = [point[0],point[2],point[1]]
         pc_point.from_list([point])
         nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,5)[1][0]
-        #print nearest
         for kpoint in nearest:
             if kpoint < radius:
                 return True
@@ -451,16 +445,20 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.auto_steps += 1
             self.network_stepped = False
             action = -1
+            best_score = 100
             for a in range(len(self.actions)):
-               if not self.dangerous(a):
-                  action = a
-                  print self.actions[action]
-                  break #will take first safe action. Currently biased to left
+               danger = self.dangerous(a)
+               if danger < self.threshold:
+                  if danger < best_score:
+                      best_score == danger
+                      action = a
+            print self.actions[action]
         else:
             print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
 
+        action = -1
         if action == -1:
             self.y_vel = 0
             action = 2
