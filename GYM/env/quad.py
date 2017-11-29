@@ -174,7 +174,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.bridge = CvBridge()
 
         #radius of drone + extra space
-        self.radius = 1.0
+        self.radius = 0.7
 
         #Percent of danger allowed
         self.threshold = 0.05
@@ -302,7 +302,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         while not rospy.is_shutdown():
             if not self.temp_pause:
                 yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
-                yacel = 0
                 w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
                 att_pos.pose.orientation.x = i
                 att_pos.pose.orientation.y = j 
@@ -450,8 +449,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
-
-        action = -1
 
         if action == -1:
             self.y_vel = 0
