@@ -33,6 +33,7 @@ from attitude_PID import a_PID
 from vel_PID import v_PID
 import sensor_msgs.point_cloud2 as pc2
 import pcl
+from tf.transformations import euler_from_quaternion
 
 
 class GazeboQuadEnv(gazebo_env.GazeboEnv):
@@ -335,6 +336,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print "COLLISION"
 
     def observe(self):
+        #return np.zeros(2500)
         return self.mono_image
 
     def reset_quad(self):
@@ -354,9 +356,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.rate.sleep()
         return
 
+    def orient_point(self,point):
+        orientation = self.cur_imu.orientation 
+        roll,pitch,yaw = euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])
+        point[0] = point[0]*math.cos(roll)
+        point[1] = point[2]*math.cos(pitch)
+        point[2] = point[2]*(math.sin(pitch)+math.sin(roll))
+        return point
+
     def check_nearest_neighbor(self,radius,point):
         pc_point = pcl.PointCloud()
         point = [point[0],point[2],point[1]]
+        point = self.orient_point(point)
         pc_point.from_list([point])
         nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,5)[1][0]
         #print nearest
