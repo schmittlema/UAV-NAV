@@ -8,6 +8,7 @@ import time
 import math
 from random import randint
 from slam import Slam
+import queue
 import copy as cp
 import ast
 
@@ -19,7 +20,7 @@ from mavros_msgs.msg import OverrideRCIn, PositionTarget,State
 from sensor_msgs.msg import LaserScan, NavSatFix,Image,PointCloud2,Imu
 from std_msgs.msg import Float64;
 from gazebo_msgs.msg import ModelStates,ModelState,ContactsState
-from gazebo_msgs.srv import SetModelState, GetModelState
+from gazebo_msgs.srv import SetModelState, GetModelState, SpawnModel,DeleteModel
 
 from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from geometry_msgs.msg import PoseStamped,Pose,Vector3,Twist,TwistStamped
@@ -126,6 +127,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.vel_sub = rospy.Subscriber('/mavros/local_position/velocity', TwistStamped, callback=self.vel_cb)
 
         self.accel_sub = rospy.Subscriber('/mavros/imu/data', Imu, callback=self.imu_cb)
+        #Autoworld
+        rospy.wait_for_service('gazebo/spawn_sdf_model')
+        rospy.wait_for_service('gazebo/delete_model')
+        self.spawn_proxy = rospy.ServiceProxy('gazebo/spawn_sdf_model',SpawnModel)
+        self.delete_proxy = rospy.ServiceProxy('gazebo/delete_model',DeleteModel)
+
 
         rospy.Subscriber('/bumper_rotor0',ContactsState,self.callbackrotor)
         rospy.Subscriber('/bumper_rotor1',ContactsState,self.callbackrotor)
@@ -142,7 +149,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 2.5 
-        self.pose.pose.position.z = 2
+        self.pose.pose.position.z = 5
         self.pose.pose.orientation.x = 0
         self.pose.pose.orientation.y = 0
         self.pose.pose.orientation.z = 0.707 
@@ -157,6 +164,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.pause_sim = False
         self.steps = 0
+        self.episode_distance = 0
         self.target = 0
         self.temp_pause = False
         self.accuracy = 0.2
@@ -185,6 +193,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     
         #PointCloud
         self.kdtree = 0
+
+        #Auto trees
+        self.density = 8
+        self.last_draw = -20
+        f = open('model-worlds/tree.sdf','r')
+        self.sdff = f.read()
+        self.tree_id = 0
+        self.tree_bank = queue.Queue()
 
         #Reading In Samples
         #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
@@ -297,7 +313,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         while not rospy.is_shutdown():
             if not self.temp_pause:
                 yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
-                w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
+                w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,5,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
                 att_pos.pose.orientation.x = i
                 att_pos.pose.orientation.y = j 
                 att_pos.pose.orientation.z = k 
@@ -343,12 +359,40 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         modelstate.pose.orientation.w = 0.707 
         self.model_state(modelstate)
 
+    #DEPRECATED Because it never worked
+    def move_tree(self,tid,loc):
+        pose = self.model_position(str(tid),'world')
+        modelstate = ModelState()
+        modelstate.model_name = str(tid)
+        modelstate.pose.position = loc
+        self.model_state(modelstate)
+        posea = self.model_position(str(tid),'world')
+        print pose,posea
+        while(pose.pose.position != loc):
+           self.rate.sleep() 
+
     def wait_until_start(self):
         while True:
             if self.started:
                 break
             self.rate.sleep()
         return
+    
+    def make_new_trees(self):
+        if(self.cur_pose.pose.position.y - self.last_draw >= 10):
+            self.last_draw = self.cur_pose.pose.position.y
+            start_x = (self.cur_pose.pose.position.x - 35) + randint(0,5)
+            x = start_x
+            while(x < start_x + 80):
+                target = Pose()
+                target.position.x = x 
+                target.position.y = (self.cur_pose.pose.position.y + 20) + randint(-4,4)
+                target.position.z = 5.1 
+                self.spawn_proxy(str(self.tree_id),self.sdff,'trees',target,'world')
+                #self.tree_bank.put(self.tree_id)
+                self.tree_id+=1
+                x += self.density + randint(0,3)
+                self.rate.sleep()
 
     def orient_point(self,point):
         orientation = self.cur_imu.orientation 
@@ -356,7 +400,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #print pitch,point[1],point[1]*math.cos(pitch)
         point[0] = point[0]*math.cos(roll)
         point[1] = point[1]*math.cos(pitch)
-        point[2] = point[1]*(math.sin(pitch)+math.sin(roll))
+        point[2] = point[2] + ((point[1]*math.sin(pitch))+(point[0]*math.sin(roll)))
         return point
 
     def check_nearest_neighbor(self,radius,point):
@@ -386,13 +430,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
             self.collisions += 1
+            self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
-        if self.cur_pose.pose.position.y > 40:
-	    print "GOAL"
-            done = True
-            self.steps = 0
-	    self.successes += 1
-            self.hard_reset()
+        #if self.cur_pose.pose.position.y > 40:
+	#    print "GOAL"
+        #    done = True
+        #    self.steps = 0
+	#    self.successes += 1
+        #    self.hard_reset()
         return done,reward
 
     def bin(self,accel,vel,vel_rows,accel_rows):
@@ -418,7 +463,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         points = self.array[str(action)][apos][vpos]
         if points == None:
             #Conservative behavior for moves that have no data
-            print "True",apos,vpos,self.actions[action] 
+            #print "True",apos,vpos,self.actions[action] 
             return True
         else:
             if len(points) > 20:
@@ -432,14 +477,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     if self.check_nearest_neighbor(self.radius,position):
                         local_percent+=1
 
-            print local_percent/total_points,local_percent,total_points
+            #print local_percent/total_points,local_percent,total_points
             return local_percent/total_points > self.threshold
 
-
-
     def _step(self, action):
+        self.make_new_trees()
         self.steps += 1
 
+        before = rospy.Time.now()
         if True: #self.dangerous(action):
             print "autopilot"
             self.auto_steps += 1
@@ -452,13 +497,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                   if danger < best_score:
                       best_score == danger
                       action = a
-            print self.actions[action]
+            #print self.actions[action]
         else:
             print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
 
-        action = -1
+        #print (rospy.Time.now()-before).to_sec()
+        action = 0
+
         if action == -1:
             self.y_vel = 0
             action = 2
@@ -519,11 +566,18 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                print "disarmed"
             except rospy.ServiceException, e:
                print ("mavros/set_mode service call failed: %s"%e)
-
+        #To be reinserted once delete bug is figured out
+        #if self.tree_id > 1:
+        #    for x in range(0,self.tree_id):
+        #        self.delete_proxy(str(x))
+        #    self.tree_id = 0
+        #    self.last_draw = -20
+        #rospy.wait_for_service('gazebo/spawn_sdf_model')
+        #self.make_new_trees()
         self.action = 0
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = -2
-        self.pose.pose.position.z = 2
+        self.pose.pose.position.z = 5
         self.pose.pose.orientation.x = 0
         self.pose.pose.orientation.y = 0
         self.pose.pose.orientation.z = 0.707 

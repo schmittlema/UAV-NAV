@@ -129,6 +129,7 @@ def main():
 	total_steps = 0
 	rAll_t = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
+	d_t = tf.Variable(0.0)
 	successes = tf.Variable(0)
 	collisions = tf.Variable(0)
 	auto_steps = tf.Variable(0.0)
@@ -136,6 +137,7 @@ def main():
 
 	tf.summary.scalar('Reward',rAll_t)
 	tf.summary.scalar('Episode_length',j_t)
+	tf.summary.scalar('Episode_distance',d_t)
 	tf.summary.scalar('Number_of_successes_total',successes)
 	tf.summary.scalar('Number_of_collisions',collisions)
 
@@ -210,7 +212,7 @@ def main():
                 rList.append(rAll)
 
                 #Periodically save the model. 
-		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j)])
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
                 env.env.auto_steps = 0
                 env.env.network_steps = 0
 		summury = sess.run(merged_summary)
