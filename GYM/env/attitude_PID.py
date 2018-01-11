@@ -21,7 +21,7 @@ class a_PID:
         self.pitch = 0
         self.offset = 0.605
 
-    def generate_attitude_thrust(self,x,y,z,state,z_vel):
+    def generate_attitude_thrust(self,x,y,z,target_z,state,z_vel):
         z = z + 9.8
         z = 1 if z ==0 else z
 
@@ -39,7 +39,7 @@ class a_PID:
         self.roll = roll
         self.pitch = pitch
 
-        thrust = self.update(2,state,z_vel)
+        thrust = self.update(target_z,state,z_vel)
         w,i,j,k = q_out
 
         return w,i,j,k,thrust 
