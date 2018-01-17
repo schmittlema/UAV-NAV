@@ -98,7 +98,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "dmpsl.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
-        rospy.Subscriber('/stereo/depth_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe)
         rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
@@ -150,10 +150,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 2.5 
         self.pose.pose.position.z = 5
-        self.pose.pose.orientation.x = 0
-        self.pose.pose.orientation.y = 0
-        self.pose.pose.orientation.z = 0.707 
-        self.pose.pose.orientation.w = 0.707
+        #self.pose.pose.orientation.x = 0
+        #self.pose.pose.orientation.y = 0
+        #self.pose.pose.orientation.z = 0.707 
+        #self.pose.pose.orientation.w = 0.707
         self.network_stepped = True
 
         self.started = False
@@ -168,9 +168,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.target = 0
         self.temp_pause = False
         self.accuracy = 0.2
+        self.stop_count = 0
 
         self.action = 0
-        self.next_move = False
         self.takeover = False
         self.depth_cam = False
         self.mono_image = False
@@ -308,18 +308,27 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self._takeoff()
         att_pos = PoseStamped()
+        target = Pose()
+        target.position.x = self.cur_pose.pose.position.x 
+        target.position.y = (self.cur_pose.pose.position.y + 4)
+        target.position.z = 5.1 
+        rospy.wait_for_service('/gazebo/spawn_sdf_model')
+        #self.spawn_proxy("bob",self.sdff,'trees',target,'world')
 
         print "Main Running"
         while not rospy.is_shutdown():
             if not self.temp_pause:
-                yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
-                w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,5,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
-                att_pos.pose.orientation.x = i
-                att_pos.pose.orientation.y = j 
-                att_pos.pose.orientation.z = k 
-                att_pos.pose.orientation.w = w
-                self.att_pub.publish(att_pos)
-                self.throttle_pub.publish(thrust)
+                if self.y_vel == 0:
+                    self.local_pos.publish(self.pose)
+                else:
+                    yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
+                    w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,5,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
+                    att_pos.pose.orientation.x = i
+                    att_pos.pose.orientation.y = j 
+                    att_pos.pose.orientation.z = k 
+                    att_pos.pose.orientation.w = w
+                    self.att_pub.publish(att_pos)
+                    self.throttle_pub.publish(thrust)
             self.rate.sleep()
             self.pauser()
 
@@ -346,8 +355,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 print "COLLISION"
 
     def observe(self):
-        return np.zeros(2500)
-        #return self.mono_image
+        #return np.zeros(2500)
+        return self.mono_image
 
     def reset_quad(self):
         modelstate = ModelState()
@@ -432,6 +441,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.collisions += 1
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
+        if self.stop_count > 10:
+            print "Local Minimum"
+            self.stop_count = 0
+            done = True
+            self.steps = 0
+            self.episode_distance = self.cur_pose.pose.position.y
+	    self.hard_reset()
         #if self.cur_pose.pose.position.y > 40:
 	#    print "GOAL"
         #    done = True
@@ -474,10 +490,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 for subpoint in point:
                     total_points+=1.0
                     position = [subpoint[2][0],subpoint[2][1],0]
-                    if self.check_nearest_neighbor(self.radius,position):
-                        local_percent+=1
+                    if point[-1] == subpoint:
+                        if self.check_nearest_neighbor(self.radius,position):
+                            local_percent +=100
+                        
+                    else:
+                        if self.check_nearest_neighbor(self.radius,position):
+                            local_percent+=1
 
-            #print local_percent/total_points,local_percent,total_points
+            print local_percent/total_points,local_percent,total_points
             return local_percent/total_points > self.threshold
 
     def _step(self, action):
@@ -485,11 +506,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.steps += 1
 
         before = rospy.Time.now()
-        if True: #self.dangerous(action):
+        if self.dangerous(action):
             print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
             action = -1
+            if self.y_vel !=0:
+                self.pose.pose.position = cp.copy(self.cur_pose.pose.position)
+            self.y_vel = 0
             best_score = 100
             for a in range(len(self.actions)):
                danger = self.dangerous(a)
@@ -497,27 +521,32 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                   if danger < best_score:
                       best_score == danger
                       action = a
+            reward = -1
             #print self.actions[action]
         else:
             print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
+            reward = self.get_reward(action)
 
         #print (rospy.Time.now()-before).to_sec()
-        action = 0
 
         if action == -1:
+            if self.y_vel != 0:
+                self.pose.pose.position = cp.copy(self.cur_pose.pose.position)
+            self.stop_count = self.stop_count + 1
             self.y_vel = 0
             action = 2
             print "stop"
         else:
             self.y_vel = 2
+            self.stop_count = 0
 
         self.rate.sleep()
         self.x_accel = self.actions[action]
+        print self.x_accel
         last_request = rospy.Time.now()
         observation = self.observe()
-        reward = self.get_reward(action)
 
         done,reward = self.detect_done(reward) 
         return observation, reward,done,{}
@@ -526,8 +555,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self,action):
-        #TODO
-        return 1+1
+        if action < 2 or action > 2:
+            return 1
+        else:
+            return 3
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
