@@ -70,6 +70,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                     except rospy.ServiceException, e:
                        print ("mavros/set_mode service call failed: %s"%e)
                 last_request = rospy.Time.now()
+            if self.collision:
+                self.hard_reset()
+                return
                 self.local_pos.publish(self.pose)
             self.rate.sleep()
         self.setup_position()
@@ -352,7 +355,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         if len(data.states) > 0:
             if data.states[0].collision2_name != "":
                 self.collision = True
-                print "COLLISION"
+                #print "COLLISION"
 
     def observe(self):
         #return np.zeros(2500)

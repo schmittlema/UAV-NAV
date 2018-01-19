@@ -22,7 +22,8 @@ np.set_printoptions(threshold='nan')
 #I mean actions
 n_classes = 5
 buff_size = 1000000
-batch_size = 32 #How many experiences to use for each training step.
+batch_size = 8 #How many experiences to use for each training step.
+trace_length = 8
 update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
@@ -30,33 +31,40 @@ endE = 0.1 #Final chance of random action
 anneling_steps = 40000 #How many steps of training to reduce startE to endE.
 num_episodes = 720 #How many episodes of game environment to train network with.
 load_model = False #Whether to load a saved model.
-path = "/root/log-obst/logfile-auto-world" #The path to save our model to.
+path = "/root/log-obst/logfile-rnn" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.3
 step_length = 0.1
+h_size = 1024 #units from output of rnn to fully connected layer
 #--------------------------------------------------------------------------
 
 class Qnetwork():
-    def __init__(self):
+    def __init__(self,rnn_cell,myScope):
         self.data = tf.placeholder(shape=[None,2500],dtype=tf.float32)
         self.input =  tf.reshape(self.data,shape=[-1,50,50,1]) 
-        with tf.name_scope("layer1"):
+        with tf.name_scope(myScope +"_conv1"):
                 self.conv1 = slim.conv2d(inputs=self.input,num_outputs=32,kernel_size=[8,8],stride=[4,4],padding='VALID', biases_initializer=None)
 
-	with tf.name_scope("layer2"):
+	with tf.name_scope(myScope +"_conv2"):
                 self.conv2 = slim.conv2d(inputs=self.conv1,num_outputs=64,kernel_size=[4,4],stride=[2,2],padding='VALID', biases_initializer=None)
 
-        #with tf.name_scope("layer3"):
-        #        self.conv3 = slim.conv2d(inputs=self.conv2,num_outputs=64,kernel_size=[4,4],stride=[2,2],padding='VALID', biases_initializer=None)
+        self.trainLength = tf.placeholder(dtype=tf.int32)
+        #We take the output from the final convolutional layer and send it to a recurrent layer.
+        #The input must be reshaped into [batch x trace x units] for rnn processing, 
+        #and then returned to [batch x units] when sent through the upper levles.
+        self.batch_size = tf.placeholder(dtype=tf.int32,shape=[])
+        self.convFlat = tf.reshape(slim.flatten(self.conv2),[self.batch_size,self.trainLength,h_size])
+        self.state_in = rnn_cell.zero_state(self.batch_size, tf.float32)
+        self.rnn,self.rnn_state = tf.nn.dynamic_rnn(\
+                inputs=self.convFlat,cell=rnn_cell,dtype=tf.float32,initial_state=self.state_in,scope=myScope+'_rnn')
+        self.rnn = tf.reshape(self.rnn,shape=[-1,h_size])
 
-        #with tf.name_scope("layer4"):
-        #        self.conv4 = slim.conv2d(inputs=self.conv3,num_outputs=n_classes,kernel_size=[2,2],stride=[1,1],padding='VALID', biases_initializer=None)
-        with tf.name_scope("layer3"):
-                self.feed_forward1 = slim.fully_connected(tf.reshape(self.conv2,[-1,1024]),1024)
+        with tf.name_scope(myScope+"_ff3"):
+                self.feed_forward1 = slim.fully_connected(self.rnn,h_size)
 
-        with tf.name_scope("layer4"):
+        with tf.name_scope(myScope + "_ff4"):
                 self.Qout = slim.fully_connected(self.feed_forward1,n_classes)
                 
 		
@@ -83,13 +91,19 @@ class experience_buffer():
         self.buffer_size = buffer_size
     
     def add(self,experience):
-        if len(self.buffer) + len(experience) >= self.buffer_size:
-            self.buffer[0:(len(experience)+len(self.buffer))-self.buffer_size] = []
-        self.buffer.extend(experience)
+        if len(self.buffer) + 1 >= self.buffer_size:
+            self.buffer[0:(1+len(self.buffer))-self.buffer_size] = []
+        self.buffer.append(experience)
 
-    def sample(self,size):
-        #print np.array(random.sample(self.buffer,size)).shape
-        return np.reshape(np.array(random.sample(self.buffer,size)),[size,5])
+    def sample(self,batch_size,trace_length):
+        sampled_episodes = random.sample(self.buffer,batch_size)
+        sampledTraces = []
+        for episode in sampled_episodes:
+            point = np.random.randint(0,len(episode)+1-trace_length)
+            sampledTraces.append(episode[point:point+trace_length])
+        sampledTraces = np.array(sampledTraces)
+        return np.reshape(sampledTraces,[batch_size*trace_length,5])
+
 
 def processState(states):
     return np.reshape(states,[2500])
@@ -108,8 +122,10 @@ def updateTarget(op_holder,sess):
 
 def main():
 	tf.reset_default_graph()
-	mainQN = Qnetwork()
-	targetQN = Qnetwork()
+        cell = tf.contrib.rnn.BasicLSTMCell(num_units=h_size,state_is_tuple=True)
+        cellT = tf.contrib.rnn.BasicLSTMCell(num_units=h_size,state_is_tuple=True)
+	mainQN = Qnetwork(cell,'main')
+	targetQN = Qnetwork(cellT,'target')
 
 	saver = tf.train.Saver()
 
@@ -163,12 +179,13 @@ def main():
 
             env.env.wait_until_start()
             for i in range(num_episodes):
-	        episodeBuffer = experience_buffer()
+	        episodeBuffer = [] 
 		#Reset environment and get first new observation
                 s = env.reset()
                 s = processState(s)
                 d = False
 		rAll = 0
+                state = (np.zeros([1,h_size]),np.zeros([1,h_size])) #Reset the recurrent layer's hidden state
 		j=0
                 #The Q-Network
                 last_request = rospy.Time.now() 
@@ -178,36 +195,42 @@ def main():
                         j+=1
                         #Choose an action by greedily (with e chance of random action) from the Q-network
                         if np.random.rand(1) < e or total_steps < steps_till_training:
+                            state1 = sess.run(mainQN.rnn_state,feed_dict={mainQN.data:[s/255.0],mainQN.trainLength:1,mainQN.state_in:state,mainQN.batch_size:1})
                             a = np.random.randint(0,n_classes)
                         else:
-                            a = sess.run(mainQN.predict,feed_dict={mainQN.data:[s]})[0]
+                            a, state1 = sess.run([mainQN.predict,mainQN.rnn_state],feed_dict={mainQN.data:[s/255.0],mainQN.trainLength:1,mainQN.state_in:state,mainQN.batch_size:1})[0]
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
                         total_steps += 1
-                        episodeBuffer.add(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
-                        
-                        
+                        episodeBuffer.append(np.reshape(np.array([s,a,r,s1,d]),[1,5])) #Save the experience to our episode buffer.
+
                         if e > endE and total_steps > steps_till_training:
                             e -= stepDrop
                             
                         if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
-                            trainBatch = myBuffer.sample(batch_size) #Get a random batch of experiences.
+                            updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
+                            state_train = (np.zeros([batch_size,h_size]),np.zeros([batch_size,h_size])) 
+                            trainBatch = myBuffer.sample(batch_size,trace_length) #Get a random batch of experiences.
                             #Below we perform the Double-DQN update to the target Q-values
-                            Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3])})
-                            Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3])})
+                            Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3]/255.0),mainQN.trainLength:trace_length,mainQN.state_in:state_train,mainQN.batch_size:batch_size})
+
+                            Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3]/255.0),targetQN.trainLength:trace_length,targetQN.state_in:state_train,targetQN.batch_size:batch_size})
                             end_multiplier = -(trainBatch[:,4] - 1)
-                            doubleQ = Q2[range(batch_size),Q1]
+                            doubleQ = Q2[range(batch_size*trace_length),Q1]
                             targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
                             #Update the network with our target values.
-                            _ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]),mainQN.targetQ:targetQ, mainQN.actions:trainBatch[:,1]})
+                            sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]/255.0),mainQN.targetQ:targetQ,\
+                            mainQN.actions:trainBatch[:,1],mainQN.trainLength:trace_length,\
+                            mainQN.state_in:state_train,mainQN.batch_size:batch_size})
                                 
-                            updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
                             print "TRAINED!"
                         rAll+=r
                         s = s1
                         last_request = rospy.Time.now() 
                         
-                myBuffer.add(episodeBuffer.buffer)
+                bufferArray = np.array(episodeBuffer)
+                episodeBuffer = list(zip(bufferArray))
+                myBuffer.add(episodeBuffer)
                 jList.append(j)
                 rList.append(rAll)
 
