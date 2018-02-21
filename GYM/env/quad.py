@@ -92,7 +92,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.collision = False
         self.started = True
-        print self.started
+        #print self.started
         print "Initialized"
 
 
@@ -101,7 +101,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "dmpsl.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
-        rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe)
+        #rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('camera/rgb/image_raw', Image, callback=self.callback_observe_color)
         rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
@@ -172,11 +173,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.temp_pause = False
         self.accuracy = 0.2
         self.stop_count = 0
+        self.last_reward = 0
 
         self.action = 0
         self.takeover = False
         self.depth_cam = False
-        self.mono_image = False
+        self.mono_image = np.zeros(30000)
         self.bridge = CvBridge()
 
         #radius of drone + extra space
@@ -198,12 +200,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.kdtree = 0
 
         #Auto trees
-        self.density = 8
+        self.density = 12
         self.last_draw = -20
         f = open('model-worlds/tree.sdf','r')
         self.sdff = f.read()
         self.tree_id = 0
-        self.tree_bank = queue.Queue()
+        self.tree_bank = {}
+
+        #temporary for testing tree filling
 
         #Reading In Samples
         #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
@@ -239,11 +243,21 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def callback_observe(self,msg):
         try:
             raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
-            resized = cv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
+            resized = cv2.resize(raw_image,(100,100),interpolation=cv2.INTER_AREA)
         except CvBridgeError, e:
             print e
         self.mono_image = resized.flatten()
         #For debugging
+        #cv2.imshow('test',resized)
+        #cv2.waitKey(0)
+
+    def callback_observe_color(self,msg):
+        try:
+            raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
+            resized = cv2.resize(raw_image,(100,100),interpolation=cv2.INTER_AREA)
+        except CvBridgeError, e:
+            print e
+        self.mono_image = resized.flatten()
         #cv2.imshow('test',resized)
         #cv2.waitKey(0)
 
@@ -379,10 +393,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         modelstate.pose.position = loc
         self.model_state(modelstate)
         posea = self.model_position(str(tid),'world')
-        print pose,posea
         while(pose.pose.position != loc):
            self.rate.sleep() 
 
+    #Deprecated because just don't use anymore
     def wait_until_start(self):
         while True:
             if self.started:
@@ -391,14 +405,30 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return
     
     def make_new_trees(self):
-        if(self.cur_pose.pose.position.y - self.last_draw >= 10):
+        base = 15
+        if(self.cur_pose.pose.position.y - self.last_draw >= base):
             self.last_draw = self.cur_pose.pose.position.y
             start_x = (self.cur_pose.pose.position.x - 35) + randint(0,5)
+            cur_x = self.cur_pose.pose.position.x
+            y = int(base * round((self.cur_pose.pose.position.y + 20)/base))
+            gap = 5
+            end = start_x + 80
+            if y in self.tree_bank:
+                for entry in self.tree_bank[y]:
+                    #if cur_x < entry[1] and cur_x > entry[0]:
+                    if start_x > entry[0]:
+                        start_x = entry[1] + gap
+                    if end < entry[1]:
+                        end = entry[0] - 2
+                self.tree_bank[y].append([start_x,end])
+            else:
+                self.tree_bank[y] = []
+                self.tree_bank[y].append([start_x,end])
             x = start_x
-            while(x < start_x + 80):
+            while(x < end):
                 target = Pose()
                 target.position.x = x 
-                target.position.y = (self.cur_pose.pose.position.y + 20) + randint(-4,4)
+                target.position.y = y + randint(-4,4)
                 target.position.z = 5.1 
                 self.spawn_proxy(str(self.tree_id),self.sdff,'trees',target,'world')
                 #self.tree_bank.put(self.tree_id)
@@ -442,8 +472,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             done = True
             self.steps = 0
             self.collisions += 1
+            self.stop_count = 0
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
+            reward = -10
         if self.stop_count > 10:
             print "Local Minimum"
             self.stop_count = 0
@@ -451,7 +483,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
-        #if self.cur_pose.pose.position.y > 40:
+            #REVERT
+            reward = -5
+        #if self.cur_pose.pose.position.y > 30:
 	#    print "GOAL"
         #    done = True
         #    self.steps = 0
@@ -501,16 +535,17 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                         if self.check_nearest_neighbor(self.radius,position):
                             local_percent+=1
 
-            print local_percent/total_points,local_percent,total_points
+            #print local_percent/total_points,local_percent,total_points
             return local_percent/total_points > self.threshold
 
     def _step(self, action):
         self.make_new_trees()
         self.steps += 1
+        reward = 0
 
         before = rospy.Time.now()
         if self.dangerous(action):
-            print "autopilot"
+            #print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
             action = -1
@@ -524,10 +559,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                   if danger < best_score:
                       best_score == danger
                       action = a
-            reward = -1
+
+            #reward = -0.02
             #print self.actions[action]
         else:
-            print "deep learner"
+            #print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
             reward = self.get_reward(action)
@@ -540,14 +576,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.stop_count = self.stop_count + 1
             self.y_vel = 0
             action = 2
-            print "stop"
+            #print "stop"
         else:
             self.y_vel = 2
             self.stop_count = 0
 
         self.rate.sleep()
         self.x_accel = self.actions[action]
-        print self.x_accel
+        #print self.x_accel
         last_request = rospy.Time.now()
         observation = self.observe()
 
@@ -558,10 +594,11 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self,action):
-        if action < 2 or action > 2:
+        if self.cur_pose.pose.position.y > self.last_reward + 5:
             return 1
+            self.last_reward = self.cur_pose.pose.position.y
         else:
-            return 3
+            return 0
 
     def _killall(self, process_name):
         pids = subprocess.check_output(["pidof",process_name]).split()
@@ -586,6 +623,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.collision = False
         self.temp_pause = True
         self.land()
+        self.last_reward = 0
         while self.cur_pose.pose.position.z > 0.2:
             self.rate.sleep()
         self.reset_quad()
@@ -608,6 +646,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #    self.last_draw = -20
         #rospy.wait_for_service('gazebo/spawn_sdf_model')
         #self.make_new_trees()
+        self.last_draw = -20
         self.action = 0
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = -2

@@ -21,7 +21,7 @@ np.set_printoptions(threshold='nan')
 
 #I mean actions
 n_classes = 5
-buff_size = 1000000
+buff_size = 40000
 batch_size = 8 #How many experiences to use for each training step.
 trace_length = 8
 update_freq = 4 #How often to perform a training step.
@@ -29,21 +29,24 @@ y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
 anneling_steps = 40000 #How many steps of training to reduce startE to endE.
-num_episodes = 720 #How many episodes of game environment to train network with.
+num_episodes = 3000 #How many episodes of game environment to train network with.
 load_model = False #Whether to load a saved model.
-path = "/root/log-obst/logfile-rnn" #The path to save our model to.
+path = "/root/log-obst/logfile-rnn-color-large-image" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
-accuracy = 0.3
+#accuracy = 0.3
 step_length = 0.1
-h_size = 1024 #units from output of rnn to fully connected layer
+h_size = 7744 #1024 #units from output of rnn to fully connected layer
+image_size = 30000
 #--------------------------------------------------------------------------
 
 class Qnetwork():
     def __init__(self,rnn_cell,myScope):
-        self.data = tf.placeholder(shape=[None,2500],dtype=tf.float32)
-        self.input =  tf.reshape(self.data,shape=[-1,50,50,1]) 
+        #2500 mono
+        self.data = tf.placeholder(shape=[None,image_size],dtype=tf.float32)
+        #1 channel mono
+        self.input =  tf.reshape(self.data,shape=[-1,100,100,3]) 
         with tf.name_scope(myScope +"_conv1"):
                 self.conv1 = slim.conv2d(inputs=self.input,num_outputs=32,kernel_size=[8,8],stride=[4,4],padding='VALID', biases_initializer=None)
 
@@ -106,8 +109,8 @@ class experience_buffer():
 
 
 def processState(states):
-    return np.reshape(states,[2500])
-
+    #2500 mono
+    return np.reshape(states,[image_size])
 
 def updateTargetGraph(tfVars,tau):
     total_vars = len(tfVars)
@@ -143,6 +146,7 @@ def main():
 	jList = []
 	rList = []
 	total_steps = 0
+        Total_steps = tf.Variable(0)
 	rAll_t = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
 	d_t = tf.Variable(0.0)
@@ -152,6 +156,7 @@ def main():
 	network_steps = tf.Variable(0.0)
 
 	tf.summary.scalar('Reward',rAll_t)
+	tf.summary.scalar('Total_steps',Total_steps)
 	tf.summary.scalar('Episode_length',j_t)
 	tf.summary.scalar('Episode_distance',d_t)
 	tf.summary.scalar('Number_of_successes_total',successes)
@@ -198,7 +203,8 @@ def main():
                             state1 = sess.run(mainQN.rnn_state,feed_dict={mainQN.data:[s/255.0],mainQN.trainLength:1,mainQN.state_in:state,mainQN.batch_size:1})
                             a = np.random.randint(0,n_classes)
                         else:
-                            a, state1 = sess.run([mainQN.predict,mainQN.rnn_state],feed_dict={mainQN.data:[s/255.0],mainQN.trainLength:1,mainQN.state_in:state,mainQN.batch_size:1})[0]
+                            a, state1 = sess.run([mainQN.predict,mainQN.rnn_state],feed_dict={mainQN.data:[s/255.0],mainQN.trainLength:1,mainQN.state_in:state,mainQN.batch_size:1})
+                            a = a[0]
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
                         total_steps += 1
@@ -207,25 +213,33 @@ def main():
                         if e > endE and total_steps > steps_till_training:
                             e -= stepDrop
                             
-                        if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
-                            updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
-                            state_train = (np.zeros([batch_size,h_size]),np.zeros([batch_size,h_size])) 
-                            trainBatch = myBuffer.sample(batch_size,trace_length) #Get a random batch of experiences.
-                            #Below we perform the Double-DQN update to the target Q-values
-                            Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3]/255.0),mainQN.trainLength:trace_length,mainQN.state_in:state_train,mainQN.batch_size:batch_size})
+                        try:
+                            if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
+                                updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
+                                state_train = (np.zeros([batch_size,h_size]),np.zeros([batch_size,h_size])) 
+                                trainBatch = myBuffer.sample(batch_size,trace_length) #Get a random batch of experiences.
+                                #Below we perform the Double-DQN update to the target Q-values
+                                Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3]/255.0),mainQN.trainLength:trace_length,mainQN.state_in:state_train,mainQN.batch_size:batch_size})
 
-                            Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3]/255.0),targetQN.trainLength:trace_length,targetQN.state_in:state_train,targetQN.batch_size:batch_size})
-                            end_multiplier = -(trainBatch[:,4] - 1)
-                            doubleQ = Q2[range(batch_size*trace_length),Q1]
-                            targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
-                            #Update the network with our target values.
-                            sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]/255.0),mainQN.targetQ:targetQ,\
-                            mainQN.actions:trainBatch[:,1],mainQN.trainLength:trace_length,\
-                            mainQN.state_in:state_train,mainQN.batch_size:batch_size})
-                                
-                            print "TRAINED!"
+                                Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3]/255.0),targetQN.trainLength:trace_length,targetQN.state_in:state_train,targetQN.batch_size:batch_size})
+                                end_multiplier = -(trainBatch[:,4] - 1)
+                                doubleQ = Q2[range(batch_size*trace_length),Q1]
+                                targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
+                                #Update the network with our target values.
+                                sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]/255.0),mainQN.targetQ:targetQ,\
+                                mainQN.actions:trainBatch[:,1],mainQN.trainLength:trace_length,\
+                                mainQN.state_in:state_train,mainQN.batch_size:batch_size})
+                                    
+                                print "TRAINED!"
+                        except e:
+                            print e
+                            env.close()
+                            env.env.close()
+                            writer.close()
+
                         rAll+=r
                         s = s1
+                        state = state1
                         last_request = rospy.Time.now() 
                         
                 bufferArray = np.array(episodeBuffer)
@@ -235,7 +249,7 @@ def main():
                 rList.append(rAll)
 
                 #Periodically save the model. 
-		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance),tf.assign(Total_steps,total_steps)])
                 env.env.auto_steps = 0
                 env.env.network_steps = 0
 		summury = sess.run(merged_summary)
