@@ -81,12 +81,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def setup_position(self):
         print "Moving To Position..."
         self.pose.pose.position.y = 0
-        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.3):
-            if self.collision:
+        count = 0
+        while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.5):
+            if self.collision or count > 500:
                 self.hard_reset()
                 return
             self.local_pos.publish(self.pose)
             self.rate.sleep()
+            count +=1
 
             #self.check_nearest_neighbor(self.radius,[0,1,0])
 
@@ -153,7 +155,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose = PoseStamped()
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 2.5 
-        self.pose.pose.position.z = 5
+        self.pose.pose.position.z = 3
         #self.pose.pose.orientation.x = 0
         #self.pose.pose.orientation.y = 0
         #self.pose.pose.orientation.z = 0.707 
@@ -197,7 +199,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.cur_imu = Imu()
     
         #PointCloud
-        self.kdtree = 0
+        self.kd_tree = 0
 
         #Auto trees
         self.density = 12
@@ -258,6 +260,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         except CvBridgeError, e:
             print e
         self.mono_image = resized.flatten()
+        #cv2.imwrite('color-image.png',resized)
         #cv2.imshow('test',resized)
         #cv2.waitKey(0)
 
@@ -646,11 +649,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #    self.last_draw = -20
         #rospy.wait_for_service('gazebo/spawn_sdf_model')
         #self.make_new_trees()
-        self.last_draw = -20
         self.action = 0
         self.pose.pose.position.x = 0
-        self.pose.pose.position.y = -2
-        self.pose.pose.position.z = 5
+        self.pose.pose.position.y = 0 
+        self.pose.pose.position.z = 3
         self.pose.pose.orientation.x = 0
         self.pose.pose.orientation.y = 0
         self.pose.pose.orientation.z = 0.707 

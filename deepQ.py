@@ -94,9 +94,10 @@ class experience_buffer():
         self.buffer_size = buffer_size
     
     def add(self,experience):
-        if len(self.buffer) + 1 >= self.buffer_size:
-            self.buffer[0:(1+len(self.buffer))-self.buffer_size] = []
-        self.buffer.append(experience)
+        if len(experience) > trace_length:
+            self.buffer.append(experience)
+            if len(self.buffer) + 1 >= self.buffer_size:
+                self.buffer[0:(1+len(self.buffer))-self.buffer_size] = []
 
     def sample(self,batch_size,trace_length):
         sampled_episodes = random.sample(self.buffer,batch_size)
@@ -213,29 +214,26 @@ def main():
                         if e > endE and total_steps > steps_till_training:
                             e -= stepDrop
                             
-                        try:
-                            if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
-                                updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
-                                state_train = (np.zeros([batch_size,h_size]),np.zeros([batch_size,h_size])) 
-                                trainBatch = myBuffer.sample(batch_size,trace_length) #Get a random batch of experiences.
-                                #Below we perform the Double-DQN update to the target Q-values
-                                Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3]/255.0),mainQN.trainLength:trace_length,mainQN.state_in:state_train,mainQN.batch_size:batch_size})
+                        if total_steps % (update_freq) == 0 and total_steps > steps_till_training:
+                            updateTarget(targetOps,sess) #Set the target network to be equal to the primary network.
+                            state_train = (np.zeros([batch_size,h_size]),np.zeros([batch_size,h_size])) 
+                            trainBatch = myBuffer.sample(batch_size,trace_length) #Get a random batch of experiences.
+                            #Below we perform the Double-DQN update to the target Q-values
+                            Q1 = sess.run(mainQN.predict,feed_dict={mainQN.data:np.vstack(trainBatch[:,3]/255.0),mainQN.trainLength:trace_length,mainQN.state_in:state_train,mainQN.batch_size:batch_size})
 
-                                Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3]/255.0),targetQN.trainLength:trace_length,targetQN.state_in:state_train,targetQN.batch_size:batch_size})
-                                end_multiplier = -(trainBatch[:,4] - 1)
-                                doubleQ = Q2[range(batch_size*trace_length),Q1]
-                                targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
-                                #Update the network with our target values.
-                                sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]/255.0),mainQN.targetQ:targetQ,\
-                                mainQN.actions:trainBatch[:,1],mainQN.trainLength:trace_length,\
-                                mainQN.state_in:state_train,mainQN.batch_size:batch_size})
-                                    
-                                print "TRAINED!"
-                        except e:
-                            print e
-                            env.close()
-                            env.env.close()
-                            writer.close()
+                            Q2 = sess.run(targetQN.Qout,feed_dict={targetQN.data:np.vstack(trainBatch[:,3]/255.0),targetQN.trainLength:trace_length,targetQN.state_in:state_train,targetQN.batch_size:batch_size})
+                            end_multiplier = -(trainBatch[:,4] - 1)
+                            doubleQ = Q2[range(batch_size*trace_length),Q1]
+                            targetQ = trainBatch[:,2] + (y*doubleQ * end_multiplier)
+                            #Update the network with our target values.
+                            sess.run(mainQN.updateModel,feed_dict={mainQN.data:np.vstack(trainBatch[:,0]/255.0),mainQN.targetQ:targetQ,\
+                            mainQN.actions:trainBatch[:,1],mainQN.trainLength:trace_length,\
+                            mainQN.state_in:state_train,mainQN.batch_size:batch_size})
+                                
+                            print "TRAINED!"
+                            #env.close()
+                            #env.env.close()
+                            #writer.close()
 
                         rAll+=r
                         s = s1
