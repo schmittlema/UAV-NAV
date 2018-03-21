@@ -129,7 +129,7 @@ def main():
 		#Reset environment and get first new observation
 		rAll = 0
 		j=0
-		_ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:input_data),Y: input_y})
+		_ = sess.run(mainQN.updateModel,feed_dict={mainQN.data:input_data,Y: input_y})
 			
                 #Periodically save the model. 
 		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
