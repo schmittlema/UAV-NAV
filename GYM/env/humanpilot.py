@@ -110,8 +110,8 @@ start_pos.pose.position.z = 2
 pid = a_PID()
 vpid = v_PID()
 rate = rospy.Rate(10)
-log_in = open("test_input.txt","w")
-log_out = open("test_output.txt","w")
+log_in = open("test_input.txt","a")
+log_out = open("test_output.txt","a")
 observation = 0
 num_recorded = 0
 pygame.display.init()
@@ -162,11 +162,12 @@ def make_new_trees():
 def record(observation,action):
     global num_recorded 
     #record observation/action in two different files
-    log_in.write(str(list(observation))+'\n')
-    label = [0,0,0,0,0]
-    label[action] = 1
-    log_out.write(str(label)+"\n")
-    num_recorded+=1
+    if action != 2:
+        log_in.write(str(list(observation))+'\n')
+        label = [0,0,0,0,0]
+        label[action] = 1
+        log_out.write(str(label)+"\n")
+        num_recorded+=1
 
 def land():
     global state
@@ -312,7 +313,7 @@ while not rospy.is_shutdown() and running:
     	record(observation,xacel)
 
     if num_recorded % 100 == 0 :
-        print num_recorded
+        print num_recorded,cur_pose.pose.position.y,cur_pose.pose.position.x
 
     if num_recorded > 50000:
         print "Shutting Down..."

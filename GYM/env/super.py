@@ -5,14 +5,15 @@ import random
 
 # Python optimisation variables
 learning_rate = 0.001
-epochs = 100
+epochs = 5
 batch_size = 100
 classes = 5
-path = "/root/log-supervised/log-1"
+path = "/home/ubuntu/log-supervised/log-1"
 
 class network():
     def __init__(self):
 	    # declare the training data placeholders
+	    self.drop = tf.placeholder(dtype=tf.bool)
             self.xavier = tf.contrib.layers.xavier_initializer(uniform=True,seed=None,dtype=tf.float32)
 	    self.x = tf.placeholder(shape=[None,30000],dtype=tf.float32)
 	    self.y = tf.placeholder(shape=[None,5],dtype=tf.float32)
@@ -49,8 +50,9 @@ class network():
             # Dense Layer
             self.pool2_flat = tf.reshape(self.pool2, [-1, 25 * 25 * 64])
             self.dense = tf.layers.dense(inputs=self.pool2_flat, units=1024, activation=tf.nn.relu)
+            self.dense2 = tf.layers.dense(inputs=self.dense, units=512, activation=tf.nn.relu)
             self.dropout = tf.layers.dropout(
-                inputs=self.dense, rate=0.4, training=True)
+                inputs=self.dense2, rate=0.4, training=self.drop)
 
             # Logits Layer
             self.logits = tf.layers.dense(inputs=self.dropout, units=5)
@@ -71,6 +73,7 @@ class network():
 
 class sub_data():
     def __init__(self):
+        self.test_data = False
 	self.labels = []
 	self.images = []
 
@@ -80,9 +83,14 @@ class sub_data():
 	sample_y = []
 	choice = np.arange(0,len(self.labels))
 	sample = random.sample(choice,batch_size)
+        forward_count = 0.0
 	for i in range(0,len(sample)):
-		sample_x.append(self.images[sample[i]])
-		sample_y.append(self.labels[sample[i]])
+            if self.labels[sample[i]][2] == 1 and self.test_data:
+                forward_count+=1.0
+            sample_x.append(self.images[sample[i]])
+            sample_y.append(self.labels[sample[i]])
+        if self.test_data:
+            print "Forward Count:", forward_count, forward_count/float(batch_size)
 		
 	return sample_x,sample_y
 
@@ -92,7 +100,8 @@ class data():
 	self.train = sub_data()
 	self.test = sub_data()
 
-	filenames = ["train_output.txt","fake_input.txt","test_output.txt","faketest_input.txt"]
+	filenames = ["train_output.txt","train_input.txt","test_output.txt","test_input.txt"]
+	#filenames = ["train_output.txt","train_input.txt"]
         for i in range(0,len(filenames)):
 	    with open(filenames[i],'r') as infile:
 	        for line in infile:
@@ -114,34 +123,53 @@ network = network()
 #initialize data
 data = data()
 
+data.test.test_data = True
+
 # add a summary to store the accuracy
 loss = tf.Variable(0.0)
 tf.summary.scalar('Loss', loss)
+#For saving model
+saver = tf.train.Saver()
 
 # start the session
 print "Starting training..."
 with tf.Session() as sess:
-        # initialise the variables
-        init_op = tf.global_variables_initializer()
-	sess.run(init_op)
-        merged = tf.summary.merge_all()
-        writer = tf.summary.FileWriter(path)
-        writer.add_graph(sess.graph)
-	total_batch = int(len(data.train.labels) / batch_size)
-	for epoch in range(epochs):
-	    avg_loss = 0
-	    for i in range(total_batch):
-		batch_x, batch_y = data.train.next_batch(batch_size=batch_size)
-		_, c = sess.run([network.updateModel, network.loss], feed_dict={network.x: batch_x, network.y: batch_y})
-                #c1,p1,c2,p2 = sess.run([network.conv1_size,network.pool1_size,network.conv2_size,network.pool2_size],feed_dict={network.x : batch_x, network.y:batch_y})
-                #print c1,p1,c2,p2
-		avg_loss += c / total_batch
-	    print("Epoch:", (epoch + 1), "loss =", "{:.3f}".format(avg_loss))
-	    
-	    sess.run([tf.assign(loss,avg_loss)])
-	    summary = sess.run(merged)
-	    writer.add_summary(summary, epoch)
-	    writer.flush()
+    # initialise the variables
+    init_op = tf.global_variables_initializer()
+    sess.run(init_op)
+    merged = tf.summary.merge_all()
+    writer = tf.summary.FileWriter(path)
+    writer.add_graph(sess.graph)
+    tbatch_x, tbatch_y = data.test.next_batch(batch_size=500)
+    print("Test-Set Accuracy:",sess.run(network.accuracy, feed_dict={network.x: tbatch_x, network.y: tbatch_y,network.drop:False}))
+    print
+    total_batch = int(len(data.train.labels) / batch_size)
+    for epoch in range(epochs):
+        avg_loss = 0
+        for i in range(total_batch):
+            batch_x, batch_y = data.train.next_batch(batch_size=batch_size)
+            _, c = sess.run([network.updateModel, network.loss], feed_dict={network.x: batch_x, network.y: batch_y,network.drop:True})
+            #c1,p1,c2,p2 = sess.run([network.conv1_size,network.pool1_size,network.conv2_size,network.pool2_size],feed_dict={network.x : batch_x, network.y:batch_y})
+            #print c1,p1,c2,p2
+            avg_loss += c / total_batch
+        print("Epoch:", (epoch + 1), "loss =", "{:.3f}".format(avg_loss))
 
-	print("\nTraining complete!")
-	print(sess.run(network.accuracy, feed_dict={network.x: data.test.images, network.y: data.test.labels}))
+        tbatch_x, tbatch_y = data.test.next_batch(batch_size=500)
+        print("Test-Set Accuracy:",sess.run(network.accuracy, feed_dict={network.x: tbatch_x, network.y: tbatch_y,network.drop:False}))
+        print
+        sess.run([tf.assign(loss,avg_loss)])
+        summary = sess.run(merged)
+        writer.add_summary(summary, epoch)
+        writer.flush()
+
+    print("\nTraining complete!")
+    batch_size = 500
+    total_batch = int(len(data.test.labels) / batch_size)
+    saver.save(sess,path+'/model/model-final.cptk')
+    print("Model saved!")
+    avg_accuracy = 0
+    for i in range(total_batch):
+        tbatch_x, tbatch_y = data.test.next_batch(batch_size=batch_size)
+        c = sess.run(network.accuracy, feed_dict={network.x: tbatch_x, network.y: tbatch_y,network.drop:False}) 
+	avg_accuracy += c / total_batch
+    print("Test-Set Accuracy:",avg_accuracy)
