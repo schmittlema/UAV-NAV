@@ -7,6 +7,7 @@ import subprocess
 import time
 import math
 from random import randint
+import random
 from slam import Slam
 import queue
 import copy as cp
@@ -33,7 +34,6 @@ from cv_bridge import CvBridge, CvBridgeError
 from attitude_PID import a_PID
 from vel_PID import v_PID
 import sensor_msgs.point_cloud2 as pc2
-import pcl
 from tf.transformations import euler_from_quaternion
 
 
@@ -95,10 +95,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def __init__(self):
         # Launch the simulation with the given launchfile name
-        gazebo_env.GazeboEnv.__init__(self, "dmpsl.launch")    
+        gazebo_env.GazeboEnv.__init__(self, "plain.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
-        rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('/stereo/left/image_raw', Image, callback=self.callback_observe)
         rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
@@ -150,10 +150,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 2.5 
         self.pose.pose.position.z = 5
-        #self.pose.pose.orientation.x = 0
-        #self.pose.pose.orientation.y = 0
-        #self.pose.pose.orientation.z = 0.707 
-        #self.pose.pose.orientation.w = 0.707
+        self.pose.pose.orientation.x = 0
+        self.pose.pose.orientation.y = 0
+        self.pose.pose.orientation.z = 0.707 
+        self.pose.pose.orientation.w = 0.707
         self.network_stepped = True
 
         self.started = False
@@ -173,7 +173,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.action = 0
         self.takeover = False
         self.depth_cam = False
-        self.mono_image = False
+        self.mono_image = np.zeros(30000)
         self.bridge = CvBridge()
 
         #radius of drone + extra space
@@ -195,23 +195,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.kdtree = 0
 
         #Auto trees
-        self.density = 8
+        self.density = 12
         self.last_draw = -20
         f = open('model-worlds/tree.sdf','r')
         self.sdff = f.read()
         self.tree_id = 0
-        self.tree_bank = queue.Queue()
-
-        #Reading In Samples
-        #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
-        #self.accel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
-        self.vel_rows = [-5,-4,-3,-2,-1,0,1,2,3,4,5]
-        self.accel_rows = [-5,-4,-3,-2,-1,0,1,2,3,4,5]
-
-        log = open("GYM/env/log_sample.txt","r")
-        array = log.readline()
-        self.array = self.process(ast.literal_eval(array),self.accel_rows,self.vel_rows)
-        log.close()
+        self.tree_bank = {} 
 
     def pos_cb(self,msg):
         self.cur_pose = msg
@@ -236,10 +225,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def callback_observe(self,msg):
         try:
             raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
-            resized = cv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
+            resized = cv2.resize(raw_image,(100,100),interpolation=cv2.INTER_AREA)
         except CvBridgeError, e:
             print e
-        self.mono_image = resized.flatten()
+        self.mono_image = np.array(resized.flatten())
         #For debugging
         #cv2.imshow('test',resized)
         #cv2.waitKey(0)
@@ -289,7 +278,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
 
     def filter_correct(self):
-        pose = self.model_position('f450-depth','world')
+        pose = self.model_position('f450-stereo','world')
         return self.at_target(self.cur_pose,pose,5)
 
     def at_target(self,cur,target,accuracy):
@@ -360,7 +349,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def reset_quad(self):
         modelstate = ModelState()
-        modelstate.model_name = "f450-depth"
+        modelstate.model_name = "f450-stereo"
         modelstate.pose.position.z = 0.1
         modelstate.pose.position.x = 0
         modelstate.pose.position.y = -2
@@ -388,6 +377,38 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return
     
     def make_new_trees(self):
+        base = 15
+        if(self.cur_pose.pose.position.y - self.last_draw >= base):
+            self.last_draw = self.cur_pose.pose.position.y
+            start_x = (self.cur_pose.pose.position.x - 35) + random.randint(0,5)
+            cur_x = self.cur_pose.pose.position.x
+            y = int(base * round((self.cur_pose.pose.position.y + 20)/base))
+            gap = 5
+            end = start_x + 80
+            if y in self.tree_bank:
+                for entry in self.tree_bank[y]:
+                    #if cur_x < entry[1] and cur_x > entry[0]:
+                    if start_x > entry[0]:
+                        start_x = entry[1] + gap
+                    if end < entry[1]:
+                        end = entry[0] - 2
+                self.tree_bank[y].append([start_x,end])
+            else:
+                self.tree_bank[y] = []
+                self.tree_bank[y].append([start_x,end])
+            x = start_x
+            while(x < end):
+                target = Pose()
+                target.position.x = x 
+                target.position.y = y + random.randint(-4,4)
+                target.position.z = 5.1 
+                self.spawn_proxy(str(self.tree_id),self.sdff,'trees',target,'world')
+                #self.tree_bank.put(self.tree_id)
+                self.tree_id+=1
+                x += self.density + random.randint(0,3)
+                self.rate.sleep()
+
+    def make_new_trees_DEPRECATED(self):
         if(self.cur_pose.pose.position.y - self.last_draw >= 10):
             self.last_draw = self.cur_pose.pose.position.y
             start_x = (self.cur_pose.pose.position.x - 35) + randint(0,5)
@@ -441,110 +462,26 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.collisions += 1
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
-        if self.stop_count > 10:
-            print "Local Minimum"
-            self.stop_count = 0
+        if self.cur_pose.pose.position.y > 500:
+	    print "GOAL"
             done = True
             self.steps = 0
-            self.episode_distance = self.cur_pose.pose.position.y
-	    self.hard_reset()
-        #if self.cur_pose.pose.position.y > 40:
-	#    print "GOAL"
-        #    done = True
-        #    self.steps = 0
-	#    self.successes += 1
-        #    self.hard_reset()
+	    self.successes += 1
+            self.hard_reset()
         return done,reward
-
-    def bin(self,accel,vel,vel_rows,accel_rows):
-        vel = round(vel)
-        accel = round(accel)
-
-        if abs(accel)>max(accel_rows):
-            if accel < 0:
-                accel = -1* max(accel_rows)
-            else:
-                accel = max(accel_rows)
-        if abs(vel)>max(vel_rows):
-            if vel<0:
-                vel = -1 * max(vel_rows)
-            else:
-                vel = max(vel_rows)
-        vpos = vel_rows.index(vel)
-        apos = accel_rows.index(accel)
-        return vpos,apos
-
-    def dangerous(self,action):
-        vpos,apos = self.bin(self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x,self.vel_rows,self.accel_rows)
-        points = self.array[str(action)][apos][vpos]
-        if points == None:
-            #Conservative behavior for moves that have no data
-            #print "True",apos,vpos,self.actions[action] 
-            return True
-        else:
-            if len(points) > 20:
-                points = points[:20]
-            local_percent = 0.0 
-            total_points = 0.0
-            for point in points:
-                for subpoint in point:
-                    total_points+=1.0
-                    position = [subpoint[2][0],subpoint[2][1],0]
-                    if point[-1] == subpoint:
-                        if self.check_nearest_neighbor(self.radius,position):
-                            local_percent +=100
-                        
-                    else:
-                        if self.check_nearest_neighbor(self.radius,position):
-                            local_percent+=1
-
-            print local_percent/total_points,local_percent,total_points
-            return local_percent/total_points > self.threshold
 
     def _step(self, action):
         self.make_new_trees()
         self.steps += 1
 
         before = rospy.Time.now()
-        if self.dangerous(action):
-            print "autopilot"
-            self.auto_steps += 1
-            self.network_stepped = False
-            action = -1
-            if self.y_vel !=0:
-                self.pose.pose.position = cp.copy(self.cur_pose.pose.position)
-            self.y_vel = 0
-            best_score = 100
-            for a in range(len(self.actions)):
-               danger = self.dangerous(a)
-               if danger < self.threshold:
-                  if danger < best_score:
-                      best_score == danger
-                      action = a
-            reward = -1
-            #print self.actions[action]
-        else:
-            print "deep learner"
-            self.network_steps += 1
-            self.network_stepped = True
-            reward = self.get_reward(action)
-
-        #print (rospy.Time.now()-before).to_sec()
-
-        if action == -1:
-            if self.y_vel != 0:
-                self.pose.pose.position = cp.copy(self.cur_pose.pose.position)
-            self.stop_count = self.stop_count + 1
-            self.y_vel = 0
-            action = 2
-            print "stop"
-        else:
-            self.y_vel = 2
-            self.stop_count = 0
+        self.network_steps += 1
+        self.network_stepped = True
+        reward = self.get_reward(action)
 
         self.rate.sleep()
         self.x_accel = self.actions[action]
-        print self.x_accel
+        print self.x_accel,self.cur_pose.pose.position.y
         last_request = rospy.Time.now()
         observation = self.observe()
 
@@ -605,6 +542,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #    self.last_draw = -20
         #rospy.wait_for_service('gazebo/spawn_sdf_model')
         #self.make_new_trees()
+        self.last_draw = -10
         self.action = 0
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = -2
