@@ -1,5 +1,6 @@
 import gym
 import numpy as np
+import random
 import os
 import rospy
 import roslaunch
@@ -78,8 +79,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def setup_position(self):
         print "Moving To Position..."
         self.pose.pose.position.y = 0
+        last_request = rospy.Time.now()
         while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.3):
             if self.collision:
+                self.hard_reset()
+                return
+            if rospy.Time.now() - last_request > rospy.Duration.from_sec(30):
                 self.hard_reset()
                 return
             self.local_pos.publish(self.pose)
@@ -98,7 +103,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "dmpsl.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
-        rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('camera/rgb/image_raw', Image, callback=self.callback_observe)
         rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
@@ -178,9 +183,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         #radius of drone + extra space
         self.radius = 1.5
+        self.dsafe = 4.5 
 
         #Percent of danger allowed
-        self.threshold = 0.01
+        self.threshold = 0.05
 
         #attitude related variables
         self.cur_vel = TwistStamped()
@@ -194,13 +200,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #PointCloud
         self.kdtree = 0
 
+        self.progress = 0
+
         #Auto trees
-        self.density = 8
+        self.density = 12
         self.last_draw = -20
         f = open('model-worlds/tree.sdf','r')
         self.sdff = f.read()
         self.tree_id = 0
-        self.tree_bank = queue.Queue()
+        #self.tree_bank = queue.Queue()
+        self.tree_bank = {}
 
         #Reading In Samples
         #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
@@ -236,7 +245,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def callback_observe(self,msg):
         try:
             raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
-            resized = cv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
+            resized = cv2.resize(raw_image,(100,100),interpolation=cv2.INTER_AREA)
         except CvBridgeError, e:
             print e
         self.mono_image = resized.flatten()
@@ -363,9 +372,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         modelstate.model_name = "f450-depth"
         modelstate.pose.position.z = 0.1
         modelstate.pose.position.x = 0
-        modelstate.pose.position.y = -2
-        modelstate.pose.orientation.z = 0.707 
-        modelstate.pose.orientation.w = 0.707 
+        modelstate.pose.position.y = 0 
+        #modelstate.pose.orientation.z = 0.707 
+        #modelstate.pose.orientation.w = 0.707 
         self.model_state(modelstate)
 
     #DEPRECATED Because it never worked
@@ -386,8 +395,40 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 break
             self.rate.sleep()
         return
-    
     def make_new_trees(self):
+        base = 15
+        if(self.cur_pose.pose.position.y - self.last_draw >= base):
+            self.last_draw = self.cur_pose.pose.position.y
+            start_x = (self.cur_pose.pose.position.x - 35) + random.randint(0,5)
+            cur_x = self.cur_pose.pose.position.x
+            y = int(base * round((self.cur_pose.pose.position.y + 20)/base))
+            gap = 5
+            end = start_x + 80
+            if y in self.tree_bank:
+                for entry in self.tree_bank[y]:
+                    #if cur_x < entry[1] and cur_x > entry[0]:
+                    if start_x > entry[0] and start_x < entry[1] + gap:
+                        start_x = entry[1] + gap
+                    if end < entry[1] and end > entry[0] - gap:
+                        end = entry[0] - gap
+                self.tree_bank[y].append([start_x,end])
+            else:
+                self.tree_bank[y] = []
+                self.tree_bank[y].append([start_x,end])
+            x = start_x
+            while(x < end):
+                target = Pose()
+                target.position.x = x 
+                target.position.y = y + random.randint(-4,4)
+                target.position.z = 5.1 
+                print "spawn"
+                self.spawn_proxy(str(self.tree_id),self.sdff,'trees',target,'world')
+                #self.tree_bank.put(self.tree_id)
+                self.tree_id+=1
+                x += self.density + random.randint(0,3)
+                self.rate.sleep() 
+
+    def make_new_trees_DEPRECATED(self):
         if(self.cur_pose.pose.position.y - self.last_draw >= 10):
             self.last_draw = self.cur_pose.pose.position.y
             start_x = (self.cur_pose.pose.position.x - 35) + randint(0,5)
@@ -423,6 +464,21 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 return True
         return False
 
+    def check_nearest_neighbor_pop(self,radius,point):
+        pc_point = pcl.PointCloud()
+        point = self.orient_point(point)
+        point = [point[0],point[2],point[1]]
+        pc_point.from_list([point])
+        nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,10)[1][0]
+        population = 0
+        for kpoint in nearest:
+            if kpoint < radius:
+                population +=1
+        if population > 1:
+            return True
+        else:
+            return False
+
     def get_data(self):
         print "Waiting for mavros..."
         data = None
@@ -441,6 +497,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.collisions += 1
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
+            reward = -10
         if self.stop_count > 10:
             print "Local Minimum"
             self.stop_count = 0
@@ -448,12 +505,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
-        #if self.cur_pose.pose.position.y > 40:
-	#    print "GOAL"
-        #    done = True
-        #    self.steps = 0
-	#    self.successes += 1
-        #    self.hard_reset()
+        if self.cur_pose.pose.position.y > 200:
+	    print "GOAL"
+            done = True
+            self.steps = 0
+	    self.successes += 1
+            self.hard_reset()
+            #reward = 10
         return done,reward
 
     def bin(self,accel,vel,vel_rows,accel_rows):
@@ -473,6 +531,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         vpos = vel_rows.index(vel)
         apos = accel_rows.index(accel)
         return vpos,apos
+
+    def dangerous2(self):
+        position = [self.pose.pose.position.x,self.pose.pose.position.y,0]
+        return self.check_nearest_neighbor_pop(self.dsafe,position)
 
     def dangerous(self,action):
         vpos,apos = self.bin(self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x,self.vel_rows,self.accel_rows)
@@ -506,7 +568,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.steps += 1
 
         before = rospy.Time.now()
-        if self.dangerous(action):
+
+        if False: #self.dangerous(action):
             print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
@@ -521,13 +584,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                   if danger < best_score:
                       best_score == danger
                       action = a
-            reward = -1
+            #reward = -1
             #print self.actions[action]
         else:
-            print "deep learner"
+            print "deep learner",self.cur_pose.pose.position.y
             self.network_steps += 1
             self.network_stepped = True
-            reward = self.get_reward(action)
+        reward = self.get_reward2(action)
 
         #print (rospy.Time.now()-before).to_sec()
 
@@ -555,7 +618,17 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return (1 / (1 + math.exp(-x)))*2
 
     def get_reward(self,action):
-        if action < 2 or action > 2:
+        if self.cur_pose.pose.position.y > self.progress + 10:
+            reward = 5
+            self.progress = self.cur_pose.pose.position.y
+        else:
+            reward = 0
+        return reward
+
+    def get_reward2(self,action):
+        if action == 1 or action == 3:
+            return 2
+        if action == 0 or action == 4:
             return 1
         else:
             return 3
@@ -588,6 +661,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.reset_quad()
         while not self.filter_correct():
             self.rate.sleep()
+        self.progress = self.pose.pose.position.y
 
         if self.state.armed:
             print "disarming"
@@ -605,14 +679,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         #    self.last_draw = -20
         #rospy.wait_for_service('gazebo/spawn_sdf_model')
         #self.make_new_trees()
+        self.last_draw = -10
         self.action = 0
         self.pose.pose.position.x = 0
-        self.pose.pose.position.y = -2
+        self.pose.pose.position.y = 2.5
         self.pose.pose.position.z = 5
-        self.pose.pose.orientation.x = 0
-        self.pose.pose.orientation.y = 0
-        self.pose.pose.orientation.z = 0.707 
-        self.pose.pose.orientation.w = 0.707
+        #self.pose.pose.orientation.x = 0
+        #self.pose.pose.orientation.y = 0
+        #self.pose.pose.orientation.z = 0.707 
+        #self.pose.pose.orientation.w = 0.707
         self._takeoff()
         self.temp_pause = False
 

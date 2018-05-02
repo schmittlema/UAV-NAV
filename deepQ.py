@@ -27,21 +27,21 @@ update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
-anneling_steps = 40000 #How many steps of training to reduce startE to endE.
+anneling_steps = 20000 #How many steps of training to reduce startE to endE.
 num_episodes = 720 #How many episodes of game environment to train network with.
 load_model = False #Whether to load a saved model.
-path = "/root/log-obst/logfile-auto-world" #The path to save our model to.
+path = "/home/ubuntu/loging/log-deepq/logfile-primr2" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
-steps_till_training = 10000 #Steps network takes before training so it has a batch to sample from
+steps_till_training = 500 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.3
 step_length = 0.1
 #--------------------------------------------------------------------------
 
 class Qnetwork():
     def __init__(self):
-        self.data = tf.placeholder(shape=[None,2500],dtype=tf.float32)
-        self.input =  tf.reshape(self.data,shape=[-1,50,50,1]) 
+        self.data = tf.placeholder(shape=[None,30000],dtype=tf.float32)
+        self.input =  tf.reshape(self.data,shape=[-1,100,100,3]) 
         with tf.name_scope("layer1"):
                 self.conv1 = slim.conv2d(inputs=self.input,num_outputs=32,kernel_size=[8,8],stride=[4,4],padding='VALID', biases_initializer=None)
 
@@ -54,7 +54,7 @@ class Qnetwork():
         #with tf.name_scope("layer4"):
         #        self.conv4 = slim.conv2d(inputs=self.conv3,num_outputs=n_classes,kernel_size=[2,2],stride=[1,1],padding='VALID', biases_initializer=None)
         with tf.name_scope("layer3"):
-                self.feed_forward1 = slim.fully_connected(tf.reshape(self.conv2,[-1,1024]),1024)
+                self.feed_forward1 = slim.fully_connected(tf.reshape(self.conv2,[-1,7744]),7744)
 
         with tf.name_scope("layer4"):
                 self.Qout = slim.fully_connected(self.feed_forward1,n_classes)
@@ -92,8 +92,7 @@ class experience_buffer():
         return np.reshape(np.array(random.sample(self.buffer,size)),[size,5])
 
 def processState(states):
-    return np.reshape(states,[2500])
-
+    return np.reshape(states,[30000])
 
 def updateTargetGraph(tfVars,tau):
     total_vars = len(tfVars)
@@ -162,7 +161,9 @@ def main():
 	    writer.add_graph(sess.graph)
 
             env.env.wait_until_start()
-            for i in range(num_episodes):
+            #for i in range(num_episodes):
+            i = 0
+            while total_steps < anneling_steps: 
 	        episodeBuffer = experience_buffer()
 		#Reset environment and get first new observation
                 s = env.reset()
@@ -206,13 +207,14 @@ def main():
                         rAll+=r
                         s = s1
                         last_request = rospy.Time.now() 
+                i+=1
                         
                 myBuffer.add(episodeBuffer.buffer)
                 jList.append(j)
                 rList.append(rAll)
 
                 #Periodically save the model. 
-		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,total_steps),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
                 env.env.auto_steps = 0
                 env.env.network_steps = 0
 		summury = sess.run(merged_summary)
