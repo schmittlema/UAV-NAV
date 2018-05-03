@@ -1,4 +1,5 @@
 import gym
+import pcl
 import numpy as np
 import os
 import rospy
@@ -78,8 +79,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def setup_position(self):
         print "Moving To Position..."
         self.pose.pose.position.y = 0
+        last_request = rospy.Time.now()
         while not rospy.is_shutdown() and not self.at_target(self.cur_pose,self.pose,0.3):
             if self.collision:
+                self.hard_reset()
+                return
+            if rospy.Time.now() - last_request > rospy.Duration.from_sec(30):
                 self.hard_reset()
                 return
             self.local_pos.publish(self.pose)
@@ -98,8 +103,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         gazebo_env.GazeboEnv.__init__(self, "plain.launch")    
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
-        rospy.Subscriber('/stereo/left/image_raw', Image, callback=self.callback_observe)
-        rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
+        rospy.Subscriber('/camera/rgb/image_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('/camera/depth/image_raw', Image, callback=self.callback_depth)
+        self.image_pub = rospy.Publisher("camera_edited",Image)
+        #rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -150,10 +157,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 2.5 
         self.pose.pose.position.z = 5
-        self.pose.pose.orientation.x = 0
-        self.pose.pose.orientation.y = 0
-        self.pose.pose.orientation.z = 0.707 
-        self.pose.pose.orientation.w = 0.707
+        #self.pose.pose.orientation.x = 0
+        #self.pose.pose.orientation.y = 0
+        #self.pose.pose.orientation.z = 0.707 
+        #self.pose.pose.orientation.w = 0.707
         self.network_stepped = True
 
         self.started = False
@@ -180,7 +187,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.radius = 1.5
 
         #Percent of danger allowed
-        self.threshold = 0.01
+        self.dsafe = 2.0
+        self.danger = False
+        self.num_interventions = 0
+        self.safety_metric = True
 
         #attitude related variables
         self.cur_vel = TwistStamped()
@@ -192,7 +202,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.cur_imu = Imu()
     
         #PointCloud
-        self.kdtree = 0
+        self.kd_tree = 0
+        self.depth = []
+        self.resized = []
+
+
+        self.last_spot = -20
 
         #Auto trees
         self.density = 12
@@ -222,6 +237,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def vel_cb(self,msg):
         self.cur_vel = msg
 
+    def callback_depth(self,msg):
+        try:
+            raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
+            resized = cv2.resize(raw_image,(100,100),interpolation=cv2.INTER_AREA)
+        except CvBridgeError, e:
+            print e
+        self.depth = np.array(resized.flatten())
+        self.resized = resized
+        #self.depth = depth[~np.isnan(depth)]
+
     def callback_observe(self,msg):
         try:
             raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
@@ -229,6 +254,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         except CvBridgeError, e:
             print e
         self.mono_image = np.array(resized.flatten())
+        #republish edited
+        try:
+            edited = raw_image
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            if self.danger:
+                cv2.putText(edited,"DANGER!",(10,230),font,0.8,(0,0,255),2,8)
+            self.image_pub.publish(self.bridge.cv2_to_imgmsg(edited,"bgr8"))
+        except CvBridgeError, e:
+            print e
         #For debugging
         #cv2.imshow('test',resized)
         #cv2.waitKey(0)
@@ -278,7 +312,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
 
     def filter_correct(self):
-        pose = self.model_position('f450-stereo','world')
+        pose = self.model_position('f450-depth','world')
         return self.at_target(self.cur_pose,pose,5)
 
     def at_target(self,cur,target,accuracy):
@@ -304,20 +338,65 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         rospy.wait_for_service('/gazebo/spawn_sdf_model')
         #self.spawn_proxy("bob",self.sdff,'trees',target,'world')
 
+        self.danger = False
         print "Main Running"
         while not rospy.is_shutdown():
             if not self.temp_pause:
-                if self.y_vel == 0:
-                    self.local_pos.publish(self.pose)
+
+                #Safety Metric 1
+                dan,direct1 = self.dangerous()
+                if dan and self.safety_metric:
+                    print "DANGER!"
+                    if not self.danger:
+                        self.num_interventions +=1
+                        dan2,direct2 = self.dangerous()
+                        dan3,direct3 = self.dangerous()
+                        if direct1 + direct2 + direct3 > 1:
+                            direct = 0
+                            print "right!!!"
+                        else:
+                            direct = 4
+                            print "left!!!"
+
+                        #self.y_vel = -4
+                        daccell = self.actions[direct]
+                    self.danger = True
+                    self.x_accel = daccell 
                 else:
-                    yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
-                    w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,5,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
-                    att_pos.pose.orientation.x = i
-                    att_pos.pose.orientation.y = j 
-                    att_pos.pose.orientation.z = k 
-                    att_pos.pose.orientation.w = w
-                    self.att_pub.publish(att_pos)
-                    self.throttle_pub.publish(thrust)
+                    self.danger = False
+                    #self.y_vel = 2
+
+                #Safety Metric 2
+                #dan = self.dangerous2()
+                #if dan != False:
+                #    min_one = max(0,dan - 1)
+                #    self.y_vel = (min_one/self.dsafe)*2
+                #    self.x_accel = (min_one/self.dsafe)*self.x_accel
+                #    print "REDUCED SPEED:",self.y_vel
+                #else:
+                #    self.y_vel = 2
+
+                #if dan !=False:
+                #    if dan < 2:
+                #        print "Opposite Accel"
+                #        if not danger:
+                #            daccell = self.x_accel
+                #            danger = True
+                #            self.x_accel = -1 * daccell 
+                #            if self.x_accel == 0:
+                #                min_one = max(0,dan - 1)
+                #                self.x_accel = (min_one/self.dsafe)*2
+                #    else:
+                #        danger = False
+
+                yacel = self.vpid.update(self.cur_vel.twist.linear.y,self.y_vel)
+                w,i,j,k,thrust = self.pid.generate_attitude_thrust(self.x_accel,yacel,0,5,self.cur_pose.pose.position.z,self.cur_vel.twist.linear.z)
+                att_pos.pose.orientation.x = i
+                att_pos.pose.orientation.y = j 
+                att_pos.pose.orientation.z = k 
+                att_pos.pose.orientation.w = w
+                self.att_pub.publish(att_pos)
+                self.throttle_pub.publish(thrust)
             self.rate.sleep()
             self.pauser()
 
@@ -349,12 +428,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def reset_quad(self):
         modelstate = ModelState()
-        modelstate.model_name = "f450-stereo"
+        modelstate.model_name = "f450-depth"
         modelstate.pose.position.z = 0.1
         modelstate.pose.position.x = 0
         modelstate.pose.position.y = -2
-        modelstate.pose.orientation.z = 0.707 
-        modelstate.pose.orientation.w = 0.707 
+        #modelstate.pose.orientation.z = 0.707 
+        #modelstate.pose.orientation.w = 0.707 
         self.model_state(modelstate)
 
     #DEPRECATED Because it never worked
@@ -388,10 +467,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             if y in self.tree_bank:
                 for entry in self.tree_bank[y]:
                     #if cur_x < entry[1] and cur_x > entry[0]:
-                    if start_x > entry[0]:
+                    if start_x > entry[0]-gap and start_x < entry[1] + gap:
                         start_x = entry[1] + gap
-                    if end < entry[1]:
-                        end = entry[0] - 2
+                    if end < entry[1]+gap and end > entry[0] - gap:
+                        end = entry[0] - gap
                 self.tree_bank[y].append([start_x,end])
             else:
                 self.tree_bank[y] = []
@@ -444,6 +523,21 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 return True
         return False
 
+    def check_nearest_neighbor_pop(self,radius,point):
+        pc_point = pcl.PointCloud()
+        point = self.orient_point(point)
+        point = [point[0],point[2],point[1]]
+        pc_point.from_list([point])
+        nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,10)[1][0]
+        population = 0
+        for kpoint in nearest:
+            if kpoint < radius:
+                population +=1
+        if population > 1:
+            return True
+        else:
+            return False
+
     def get_data(self):
         print "Waiting for mavros..."
         data = None
@@ -452,6 +546,38 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 data = rospy.wait_for_message('/mavros/global_position/rel_alt', Float64, timeout=5)
             except:
                 pass
+
+    def dangerous(self):
+        depth = self.depth
+        if len(depth) > 0:
+            min_v = np.nanmin(depth)
+            if min_v < self.dsafe:
+                min_i =np.nanargmin(depth)
+                #min_index = (np.nanargmin(depth))/100
+                min_index = min_i%100
+                #DEBUGING INFO
+                #print min_index,min_v,depth[min_i]
+                if min_index < 50:
+                    #print "right"
+                    #action 0
+                    min_i = 1
+                else:
+                    #print "left"
+                    #action 4
+                    min_i = 0
+                return [True,min_i]
+            else:
+                return [False,0]
+        else:
+            return [False,0]
+
+    def dangerous2(self):
+        if len(self.depth) > 0:
+            min_d = np.amin(self.depth)
+            if min_d < self.dsafe + 1:
+                return min_d 
+        else:
+            return False
 
     def detect_done(self,reward):
         done = False
@@ -462,12 +588,17 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.collisions += 1
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
-        if self.cur_pose.pose.position.y > 500:
+        if self.cur_pose.pose.position.y > 100:
 	    print "GOAL"
             done = True
+            self.episode_distance = 100
             self.steps = 0
 	    self.successes += 1
             self.hard_reset()
+        #if self.last_spot > self.cur_pose.pose.position.y:
+        #    done = True
+        #    print "overworked"
+        #    self.hard_reset
         return done,reward
 
     def _step(self, action):
@@ -481,11 +612,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         self.rate.sleep()
         self.x_accel = self.actions[action]
-        print self.x_accel,self.cur_pose.pose.position.y
+        #print self.x_accel,self.cur_pose.pose.position.y
         last_request = rospy.Time.now()
         observation = self.observe()
 
         done,reward = self.detect_done(reward) 
+        self.last_spot = self.cur_pose.pose.position.y
         return observation, reward,done,{}
 
     def sigmoid(self,x):
@@ -547,10 +679,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = -2
         self.pose.pose.position.z = 5
-        self.pose.pose.orientation.x = 0
-        self.pose.pose.orientation.y = 0
-        self.pose.pose.orientation.z = 0.707 
-        self.pose.pose.orientation.w = 0.707
+        #self.pose.pose.orientation.x = 0
+        #self.pose.pose.orientation.y = 0
+        #self.pose.pose.orientation.z = 0.707 
+        #self.pose.pose.orientation.w = 0.707
         self._takeoff()
         self.temp_pause = False
 

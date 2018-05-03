@@ -9,6 +9,7 @@ epochs = 5
 batch_size = 100
 classes = 5
 path = "/home/ubuntu/log-supervised/log-1"
+data_path = "/home/ubuntu/Training_data/"
 
 class network():
     def __init__(self):
@@ -103,12 +104,13 @@ class data():
 	filenames = ["train_output.txt","train_input.txt","test_output.txt","test_input.txt"]
 	#filenames = ["train_output.txt","train_input.txt"]
         for i in range(0,len(filenames)):
-	    with open(filenames[i],'r') as infile:
+	    with open(data_path+filenames[i],'r') as infile:
 	        for line in infile:
                     if i == 0:
                         self.train.labels.append(eval(line))
+                        self.train.labels.append(np.flip(eval(line),0))
                     if i == 1:
-                        self.train.images.append(eval(line))
+                        self.train.images.append(np.flip(eval(line),0))
                     if i == 2:
                         self.test.labels.append(eval(line))
                     if i == 3:
@@ -132,6 +134,7 @@ tf.summary.scalar('Loss', loss)
 saver = tf.train.Saver()
 
 # start the session
+print "Number of Training Instances:",len(data.train.labels)
 print "Starting training..."
 with tf.Session() as sess:
     # initialise the variables

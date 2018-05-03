@@ -21,8 +21,8 @@ np.set_printoptions(threshold='nan')
 
 #I mean actions
 n_classes = 5
-num_episodes = 100 #How many episodes of game environment to train network with.
-path = "/home/ubuntu/log-supervised/log-1/results/" #The path to save our model to.
+num_episodes = 10 #How many episodes of game environment to test network with.
+path = "/home/ubuntu/loging/log-supervised/logfile-safe-2.0" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
@@ -107,15 +107,15 @@ def main():
 	successes = tf.Variable(0)
 	collisions = tf.Variable(0)
 	auto_steps = tf.Variable(0.0)
-	network_steps = tf.Variable(0.0)
+	interventions = tf.Variable(0.0)
 
 	tf.summary.scalar('Episode_length',j_t)
 	tf.summary.scalar('Episode_distance',d_t)
 	tf.summary.scalar('Number_of_successes_total',successes)
 	tf.summary.scalar('Number_of_collisions',collisions)
 
-	tf.summary.scalar('Percentage_of_autopilot_steps',auto_steps)
-	tf.summary.scalar('Percentage_of_network_steps',network_steps)
+	tf.summary.scalar('Steps',auto_steps)
+	tf.summary.scalar('Number of Interventions',interventions)
 
 	#Make a path for our model to be saved in.
 	if not os.path.exists(path):
@@ -133,8 +133,9 @@ def main():
 	    #writer.add_graph(sess.graph)
 
             env.env.wait_until_start()
-            print "Starting Training..."
+            print "Starting Testing..."
             for i in range(num_episodes):
+                print "EPISODE:",i
 	        #Reset environment and get first new observation
 		j=0
                 s = env.reset()
@@ -159,7 +160,7 @@ def main():
                         s = s1
 			
                 #Periodically save the model. 
-		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
+		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(interventions,env.env.num_interventions),tf.assign(d_t,env.env.episode_distance)])
                 print "updated stats"
                 env.env.auto_steps = 0
                 env.env.network_steps = 0
