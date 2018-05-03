@@ -10,6 +10,7 @@ batch_size = 100
 classes = 5
 path = "/home/ubuntu/log-supervised/log-1"
 data_path = "/home/ubuntu/Training_data/"
+augment_data = False
 
 class network():
     def __init__(self):
@@ -108,9 +109,12 @@ class data():
 	        for line in infile:
                     if i == 0:
                         self.train.labels.append(eval(line))
-                        self.train.labels.append(np.flip(eval(line),0))
+                        if augment_data:
+                            self.train.labels.append(np.flip(eval(line),0))
                     if i == 1:
-                        self.train.images.append(np.flip(eval(line),0))
+                        self.train.images.append(eval(line))
+                        if augment_data:
+                            self.train.images.append(np.flip(eval(line),0))
                     if i == 2:
                         self.test.labels.append(eval(line))
                     if i == 3:
