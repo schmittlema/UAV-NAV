@@ -187,7 +187,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.radius = 1.5
 
         #Percent of danger allowed
-        self.dsafe = 2.0
+        self.dsafe = 2.5
         self.danger = False
         self.num_interventions = 0
         self.safety_metric = True
@@ -619,6 +619,21 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         done,reward = self.detect_done(reward) 
         self.last_spot = self.cur_pose.pose.position.y
         return observation, reward,done,{}
+
+    def augment(self,raw_v):
+        if np.count_nonzero(raw_v.clip(min=0)) > 1:
+            sort = np.sort(raw_v)
+            var = abs(sort[-2] - sort[-1])
+        else:
+            var = max(raw_v.clip(min=0))
+
+        sig = False
+        if len(self.depth) > 0:
+            dobst = np.nanmin(self.depth)
+            if dobst < self.dsafe + 1:
+                sig = True
+
+        print var <=4.0, sig
 
     def sigmoid(self,x):
         return (1 / (1 + math.exp(-x)))*2

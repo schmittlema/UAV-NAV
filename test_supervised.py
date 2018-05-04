@@ -22,7 +22,7 @@ np.set_printoptions(threshold='nan')
 #I mean actions
 n_classes = 5
 num_episodes = 10 #How many episodes of game environment to test network with.
-path = "/home/ubuntu/loging/log-supervised/logfile-safe-2.0" #The path to save our model to.
+path = "/home/ubuntu/loging/log-supervised/logfile-trash" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
@@ -125,8 +125,8 @@ def main():
             init = tf.global_variables_initializer()
 	    sess.run(init)
 	    merged_summary = tf.summary.merge_all()
-            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model/model-final.cptk.meta')
-            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model/model-final.cptk")
+            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk.meta')
+            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk")
             print "Modelled Restored"
 	    writer = tf.summary.FileWriter(path)
 
@@ -148,10 +148,14 @@ def main():
                         j+=1
                         #Choose an action by greedily (with e chance of random action) from the Q-network
                         a = sess.run(tf.argmax(mainQN.predict,1),feed_dict={mainQN.drop:False,mainQN.x:[s]})[0]
+                        raw_v = np.array(sess.run(mainQN.logits,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0])
+
+
                         #For Debugging
                         #decision = sess.run(mainQN.predict,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0]
                         #print decision
 
+                        env.env.augment(raw_v)
 
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
