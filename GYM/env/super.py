@@ -102,19 +102,24 @@ class data():
 	self.train = sub_data()
 	self.test = sub_data()
 
-	filenames = ["train_output.txt","train_input.txt","test_output.txt","test_input.txt"]
+	filenames = ["train_output.txt","train_input.txt","test_output.txt","test_input.txt","train2_output.txt","train2_input.txt","train3_output.txt","train3_input.txt"]
 	#filenames = ["train_output.txt","train_input.txt"]
         for i in range(0,len(filenames)):
 	    with open(data_path+filenames[i],'r') as infile:
 	        for line in infile:
-                    if i == 0:
-                        self.train.labels.append(eval(line))
+                    if i == 0 or i == 4 or i == 6:
+                        #I accidently flipped the input on training 2
+                        if i ==4:
+                            self.train.labels.append(np.flip(np.array(eval(line)),0))
+                        else:
+                            self.train.labels.append(eval(line))
                         if augment_data:
                             self.train.labels.append(np.flip(eval(line),0))
-                    if i == 1:
+                    if i == 1 or i == 5 or i == 7:
                         self.train.images.append(eval(line))
                         if augment_data:
                             self.train.images.append(np.flip(eval(line),0))
+
                     if i == 2:
                         self.test.labels.append(eval(line))
                     if i == 3:
@@ -172,7 +177,7 @@ with tf.Session() as sess:
     print("\nTraining complete!")
     batch_size = 500
     total_batch = int(len(data.test.labels) / batch_size)
-    saver.save(sess,path+'/model/model-final.cptk')
+    saver.save(sess,path+'/model-dagger2/model-final.cptk')
     print("Model saved!")
     avg_accuracy = 0
     for i in range(total_batch):

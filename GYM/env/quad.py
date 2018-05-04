@@ -218,7 +218,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.tree_bank = {} 
 
         #DAgger
-        self.d_star = open("/home/ubuntu/Training_data/train2_input.txt",'a')
+        self.d_star = open("/home/ubuntu/Training_data/train3_input.txt",'a')
         self.aug_count = 0
 
     def pos_cb(self,msg):
@@ -639,7 +639,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         
         #record here
         if var<=4.0 or sig:
-            self.d_star.write(str(list(self.mono_image))+'\n')
+            #self.d_star.write(str(list(self.mono_image))+'\n')
             self.aug_count +=1
             print "RECORDED!",self.aug_count
             return 1
