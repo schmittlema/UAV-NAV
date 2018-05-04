@@ -26,6 +26,7 @@ path = "/home/ubuntu/loging/log-supervised/logfile-trash" #The path to save our 
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
+augment = True
 #--------------------------------------------------------------------------
 class network():
     def __init__(self):
@@ -102,6 +103,7 @@ def main():
 	#create lists to contain total rewards and steps per episode
 	jList = []
 	total_steps = 0
+        augtf = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
 	d_t = tf.Variable(0.0)
 	successes = tf.Variable(0)
@@ -113,6 +115,7 @@ def main():
 	tf.summary.scalar('Episode_distance',d_t)
 	tf.summary.scalar('Number_of_successes_total',successes)
 	tf.summary.scalar('Number_of_collisions',collisions)
+	tf.summary.scalar('Number_of_Augments_Per_Episode',augtf)
 
 	tf.summary.scalar('Steps',auto_steps)
 	tf.summary.scalar('Number of Interventions',interventions)
@@ -137,6 +140,7 @@ def main():
             for i in range(num_episodes):
                 print "EPISODE:",i
 	        #Reset environment and get first new observation
+                aug = 0
 		j=0
                 s = env.reset()
                 s = processState(s)
@@ -149,13 +153,13 @@ def main():
                         #Choose an action by greedily (with e chance of random action) from the Q-network
                         a = sess.run(tf.argmax(mainQN.predict,1),feed_dict={mainQN.drop:False,mainQN.x:[s]})[0]
                         raw_v = np.array(sess.run(mainQN.logits,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0])
-
-
                         #For Debugging
                         #decision = sess.run(mainQN.predict,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0]
                         #print decision
-
-                        env.env.augment(raw_v)
+                        
+                        #DAgger
+                        if augment:
+                            aug += env.env.augment(raw_v)
 
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
@@ -164,7 +168,7 @@ def main():
                         s = s1
 			
                 #Periodically save the model. 
-		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(interventions,env.env.num_interventions),tf.assign(d_t,env.env.episode_distance)])
+		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(interventions,env.env.num_interventions),tf.assign(augtf,aug),tf.assign(d_t,env.env.episode_distance)])
                 print "updated stats"
                 env.env.auto_steps = 0
                 env.env.network_steps = 0

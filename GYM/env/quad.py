@@ -217,6 +217,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.tree_id = 0
         self.tree_bank = {} 
 
+        #DAgger
+        self.d_star = open("/home/ubuntu/Training_data/train2_input.txt",'a')
+        self.aug_count = 0
+
     def pos_cb(self,msg):
         self.cur_pose = msg
 
@@ -632,8 +636,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             dobst = np.nanmin(self.depth)
             if dobst < self.dsafe + 1:
                 sig = True
+        
+        #record here
+        if var<=4.0 or sig:
+            self.d_star.write(str(list(self.mono_image))+'\n')
+            self.aug_count +=1
+            print "RECORDED!",self.aug_count
+            return 1
+        else:
+            return 0
 
-        print var <=4.0, sig
 
     def sigmoid(self,x):
         return (1 / (1 + math.exp(-x)))*2
