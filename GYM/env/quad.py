@@ -221,6 +221,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.d_star = open("/home/ubuntu/Training_data/train3_input.txt",'a')
         self.aug_count = 0
 
+        #Speed Of Decisions
+        self.safe_speed = rospy.Duration.from_sec(0)
+        self.safe_speed_count = 0 
+
     def pos_cb(self,msg):
         self.cur_pose = msg
 
@@ -346,6 +350,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         print "Main Running"
         while not rospy.is_shutdown():
             if not self.temp_pause:
+                safe_speed_start = rospy.Time.now() 
 
                 #Safety Metric 1
                 dan,direct1 = self.dangerous()
@@ -401,6 +406,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 att_pos.pose.orientation.w = w
                 self.att_pub.publish(att_pos)
                 self.throttle_pub.publish(thrust)
+                self.safe_speed += rospy.Time.now() - safe_speed_start 
+                self.safe_speed_count+=1
             self.rate.sleep()
             self.pauser()
 
@@ -460,13 +467,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return
     
     def make_new_trees(self):
-        base = 15
+        base = 10
         if(self.cur_pose.pose.position.y - self.last_draw >= base):
             self.last_draw = self.cur_pose.pose.position.y
             start_x = (self.cur_pose.pose.position.x - 35) + random.randint(0,5)
             cur_x = self.cur_pose.pose.position.x
             y = int(base * round((self.cur_pose.pose.position.y + 20)/base))
-            gap = 5
+            gap = 3
             end = start_x + 80
             if y in self.tree_bank:
                 for entry in self.tree_bank[y]:
