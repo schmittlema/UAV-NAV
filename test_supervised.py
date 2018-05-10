@@ -22,11 +22,11 @@ np.set_printoptions(threshold='nan')
 #I mean actions
 n_classes = 5
 num_episodes = 10 #How many episodes of game environment to test network with.
-path = "/home/ubuntu/loging/log-supervised/logfile-trash" #The path to save our model to.
+path = "/home/ubuntu/loging/log-supervised/logfile-low_thresh-trained" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
-augment = False
+augment = True
 #--------------------------------------------------------------------------
 class network():
     def __init__(self):
@@ -106,18 +106,12 @@ def main():
         augtf = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
 	d_t = tf.Variable(0.0)
-        backup_speed = tf.Variable(0.0)
-        network_speed = tf.Variable(0.0)
-        network_speed_avg = rospy.Duration.from_sec(0)
-        network_speed_count = 0 
 	successes = tf.Variable(0)
 	collisions = tf.Variable(0)
 	auto_steps = tf.Variable(0.0)
 	interventions = tf.Variable(0.0)
 
 	tf.summary.scalar('Episode_length',j_t)
-	tf.summary.scalar('Backup Speed',backup_speed)
-	tf.summary.scalar('Network Speed',network_speed)
 	tf.summary.scalar('Episode_distance',d_t)
 	tf.summary.scalar('Number_of_successes_total',successes)
 	tf.summary.scalar('Number_of_collisions',collisions)
@@ -157,7 +151,6 @@ def main():
                         env.env.next_move = False
                         j+=1
                         #Choose an action by greedily (with e chance of random action) from the Q-network
-                        network_speed_start = rospy.Time.now()
                         a = sess.run(tf.argmax(mainQN.predict,1),feed_dict={mainQN.drop:False,mainQN.x:[s]})[0]
                         #For Debugging
                         #decision = sess.run(mainQN.predict,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0]
@@ -168,9 +161,6 @@ def main():
                             raw_v = np.array(sess.run(mainQN.logits,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0])
                             aug += env.env.augment(raw_v)
 
-                        network_speed_avg += rospy.Time.now() - network_speed_start
-                        network_speed_count +=1
-
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
                         total_steps += 1
@@ -178,16 +168,12 @@ def main():
                         s = s1
 			
 
-                backup_speed = env.env.safe_speed/rospy.Duration.from_sec(env.env.safe_speed_count)
-                network_speed = network_speed_avg/rospy.Duration.from_sec(network_speed_count)
                 #Periodically save the model. 
 		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(interventions,env.env.num_interventions),tf.assign(augtf,aug),tf.assign(d_t,env.env.episode_distance)])
                 print "updated stats"
                 env.env.safe_speed = 0
                 env.env.safe_speed_count = 0
                 env.env.auto_steps = 0
-                network_speed_avg = 0
-                network_speed_count = 0
                 env.env.network_steps = 0
 		summury = sess.run(merged_summary)
 		writer.add_summary(summury,i)

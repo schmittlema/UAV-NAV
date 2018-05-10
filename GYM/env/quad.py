@@ -221,9 +221,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.d_star = open("/home/ubuntu/Training_data/train3_input.txt",'a')
         self.aug_count = 0
 
-        #Speed Of Decisions
-        self.safe_speed = rospy.Duration.from_sec(0)
-        self.safe_speed_count = 0 
 
     def pos_cb(self,msg):
         self.cur_pose = msg
@@ -406,8 +403,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 att_pos.pose.orientation.w = w
                 self.att_pub.publish(att_pos)
                 self.throttle_pub.publish(thrust)
-                self.safe_speed += rospy.Time.now() - safe_speed_start 
-                self.safe_speed_count+=1
             self.rate.sleep()
             self.pauser()
 
@@ -645,7 +640,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                 sig = True
         
         #record here
-        if var<=4.0 or sig:
+        if var<=2.0 or sig:
             #self.d_star.write(str(list(self.mono_image))+'\n')
             self.aug_count +=1
             print "RECORDED!",self.aug_count
