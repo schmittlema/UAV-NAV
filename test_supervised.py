@@ -22,11 +22,12 @@ np.set_printoptions(threshold='nan')
 #I mean actions
 n_classes = 5
 num_episodes = 10 #How many episodes of game environment to test network with.
-path = "/home/ubuntu/loging/log-supervised/logfile-low_thresh-trained" #The path to save our model to.
+path = "/home/ubuntu/loging/log-supervised/logfile-trash" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
 augment = True
+dropout_uncertainty = True
 #--------------------------------------------------------------------------
 class network():
     def __init__(self):
@@ -69,8 +70,7 @@ class network():
             self.pool2_flat = tf.reshape(self.pool2, [-1, 25 * 25 * 64])
             self.dense = tf.layers.dense(inputs=self.pool2_flat, units=1024, activation=tf.nn.relu)
             self.dense2 = tf.layers.dense(inputs=self.dense, units=512, activation=tf.nn.relu)
-            self.dropout = tf.layers.dropout(
-                inputs=self.dense2, rate=0.4, training=self.drop)
+            self.dropout = tf.layers.dropout(inputs=self.dense2, rate=0.2, training=self.drop)
 
             # Logits Layer
             self.logits = tf.layers.dense(inputs=self.dropout, units=5)
@@ -128,8 +128,8 @@ def main():
             init = tf.global_variables_initializer()
 	    sess.run(init)
 	    merged_summary = tf.summary.merge_all()
-            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-dagger2/model-final.cptk.meta')
-            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-dagger2/model-final.cptk")
+            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk.meta')
+            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk")
             print "Modelled Restored"
 	    writer = tf.summary.FileWriter(path)
 
@@ -158,8 +158,16 @@ def main():
                         
                         #DAgger
                         if augment:
-                            raw_v = np.array(sess.run(mainQN.logits,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0])
-                            aug += env.env.augment(raw_v)
+                            if dropout_uncertainty:
+                                drop1 = np.array(sess.run(mainQN.predict,feed_dict={mainQN.drop:True,mainQN.x:[s]})[0])
+                                drop2 = np.array(sess.run(mainQN.predict,feed_dict={mainQN.drop:True,mainQN.x:[s]})[0])
+                                drop3 = np.array(sess.run(mainQN.predict,feed_dict={mainQN.drop:True,mainQN.x:[s]})[0])
+                                drop4 = np.array(sess.run(mainQN.predict,feed_dict={mainQN.drop:True,mainQN.x:[s]})[0])
+                                drop5 = np.array(sess.run(mainQN.predict,feed_dict={mainQN.drop:True,mainQN.x:[s]})[0])
+                                aug += env.env.augment_dropout(drop1,drop2,drop3,drop4,drop5)
+                            else:
+                                raw_v = np.array(sess.run(mainQN.logits,feed_dict={mainQN.drop:False,mainQN.x:[s]})[0])
+                                aug += env.env.augment(raw_v)
 
                         s1,r,d,info = env.step(a)
                         s1 = processState(s1)
@@ -168,6 +176,7 @@ def main():
                         s = s1
 			
 
+                print "AUGMENTS:",aug
                 #Periodically save the model. 
 		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(interventions,env.env.num_interventions),tf.assign(augtf,aug),tf.assign(d_t,env.env.episode_distance)])
                 print "updated stats"

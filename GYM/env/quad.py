@@ -626,6 +626,19 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.last_spot = self.cur_pose.pose.position.y
         return observation, reward,done,{}
 
+    def augment_dropout(self,drop1,drop2,drop3,drop4,drop5):
+        var_sum = 0
+        for x in range(0,len(drop1)):
+            var_i = np.var([drop1[x],drop2[x],drop3[x],drop4[x],drop5[x]])
+            var_sum+=var_i
+        dobst = np.nanmin(self.depth)
+        if var_sum > 0.03 or dobst < self.dsafe+1:
+            print "Uncertain",var_sum
+            return 1
+        else:
+            return 0
+
+            
     def augment(self,raw_v):
         if np.count_nonzero(raw_v.clip(min=0)) > 1:
             sort = np.sort(raw_v)
