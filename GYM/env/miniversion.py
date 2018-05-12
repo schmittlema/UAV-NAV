@@ -6,7 +6,9 @@ import roslaunch
 import subprocess
 import time
 import math
+import sensor_msgs.point_cloud2 as pc2
 import pcl
+from tf.transformations import euler_from_quaternion
 
 from gym import utils, spaces
 import gazebo_env
@@ -61,8 +63,8 @@ def check_nearest_neighbor(radius,point):
     #point = orient_point(point)
     point = [point[0],point[2],point[1]]
     pc_point.from_list([point])
-    nearest =  kd_tree.nearest_k_search_for_cloud(pc_point,5)[1][0]
-    return nearest
+    nearest =  math.sqrt(kd_tree.nearest_k_search_for_cloud(pc_point,1)[1][0])
+    print nearest
 
 #Setup
 launchfile = "dmpsl.launch"
@@ -97,12 +99,12 @@ rospy.Subscriber('/camera/depth/points', PointCloud2, callback=stereo_cb)
 
 start_pos = PoseStamped()
 start_pos.pose.position.x = 0
-start_pos.pose.position.y = 0
+start_pos.pose.position.y = -2
 start_pos.pose.position.z = 5
 
 target = Pose()
 target.position.x = 0
-target.position.y = 0
+target.position.y = 2
 target.position.z = 5
 
 
@@ -151,7 +153,8 @@ print "Main Running"
 while not rospy.is_shutdown():
     #des_vel = vController.update(cur_pose,x_vel,y_vel)
     #vel_pub.publish(des_vel)
-    position = [self.pose.pose.position.x,self.pose.pose.position.y,0]
-    print check_nearest_neighbor(2,position)
+    position = [cur_pose.pose.position.x,cur_pose.pose.position.y,0]
+    position = [0,0,0]
+    check_nearest_neighbor(2,position)
     local_pos.publish(start_pos)
     rate.sleep()

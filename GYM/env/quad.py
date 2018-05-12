@@ -327,6 +327,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         print "Main Running"
         while not rospy.is_shutdown():
             if not self.temp_pause:
+                self.dangerous2()
                 if self.y_vel == 0:
                     self.local_pos.publish(self.pose)
                 else:
@@ -460,24 +461,24 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         pc_point.from_list([point])
         nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,5)[1][0]
         for kpoint in nearest:
-            if kpoint < radius:
+            if kpoint < self.dsafe:
                 return True
         return False
 
     def check_nearest_neighbor_pop(self,radius,point):
         pc_point = pcl.PointCloud()
-        point = self.orient_point(point)
+        #point = self.orient_point(point)
         point = [point[0],point[2],point[1]]
         pc_point.from_list([point])
         nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,10)[1][0]
         population = 0
         for kpoint in nearest:
-            if kpoint < radius:
+            if math.sqrt(kpoint) < radius:
                 population +=1
-        if population > 1:
-            return True
+        if population > 5:
+            return "Danger"
         else:
-            return False
+            return "" 
 
     def get_data(self):
         print "Waiting for mavros..."
@@ -534,7 +535,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def dangerous2(self):
         position = [self.pose.pose.position.x,self.pose.pose.position.y,0]
-        return self.check_nearest_neighbor_pop(self.dsafe,position)
+        position = [0,0,0]
+        if self.check_nearest_neighbor_pop(self.dsafe,position):
+            print "DANGER"
+            
 
     def dangerous(self,action):
         vpos,apos = self.bin(self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x,self.vel_rows,self.accel_rows)
@@ -587,7 +591,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             #reward = -1
             #print self.actions[action]
         else:
-            print "deep learner",self.cur_pose.pose.position.y
+            print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
         reward = self.get_reward2(action)
