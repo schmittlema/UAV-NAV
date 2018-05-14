@@ -104,6 +104,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
         rospy.Subscriber('/mavros/local_position/pose', PoseStamped, callback=self.pos_cb)
         rospy.Subscriber('camera/rgb/image_raw', Image, callback=self.callback_observe)
+        rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe_depth)
         rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
@@ -152,9 +153,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.cur_pose = PoseStamped()
 
         self.pose = PoseStamped()
-        self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 2.5 
-        self.pose.pose.position.z = 5
+        self.pose.pose.position.x = 0 
+        self.pose.pose.position.y = 0
+        self.pose.pose.position.z = 2
         #self.pose.pose.orientation.x = 0
         #self.pose.pose.orientation.y = 0
         #self.pose.pose.orientation.z = 0.707 
@@ -179,14 +180,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.takeover = False
         self.depth_cam = False
         self.mono_image = False
+        self.depth_image = False
         self.bridge = CvBridge()
 
         #radius of drone + extra space
-        self.radius = 1.5
+        self.radius = 1.0
         self.dsafe = 4.5 
 
         #Percent of danger allowed
-        self.threshold = 0.05
+        self.threshold = 0.02
 
         #attitude related variables
         self.cur_vel = TwistStamped()
@@ -241,6 +243,15 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def vel_cb(self,msg):
         self.cur_vel = msg
+
+    def callback_observe_depth(self,msg):
+        try:
+            raw_image = self.bridge.imgmsg_to_cv2(msg,"passthrough")
+            resized = cv2.resize(raw_image,(50,50),interpolation=cv2.INTER_AREA)
+        except CvBridgeError, e:
+            print e
+        self.depth_image = np.array(resized.flatten())
+
 
     def callback_observe(self,msg):
         try:
@@ -327,7 +338,6 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         print "Main Running"
         while not rospy.is_shutdown():
             if not self.temp_pause:
-                self.dangerous2()
                 if self.y_vel == 0:
                     self.local_pos.publish(self.pose)
                 else:
@@ -448,6 +458,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     def orient_point(self,point):
         orientation = self.cur_imu.orientation 
         roll,pitch,yaw = euler_from_quaternion([orientation.x,orientation.y,orientation.z,orientation.w])
+        pitch += 0.5
         #print pitch,point[1],point[1]*math.cos(pitch)
         point[0] = point[0]*math.cos(roll)
         point[1] = point[1]*math.cos(pitch)
@@ -461,7 +472,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         pc_point.from_list([point])
         nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,5)[1][0]
         for kpoint in nearest:
-            if kpoint < self.dsafe:
+            if kpoint < radius:
                 return True
         return False
 
@@ -534,64 +545,74 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return vpos,apos
 
     def dangerous2(self):
-        position = [self.pose.pose.position.x,self.pose.pose.position.y,0]
         position = [0,0,0]
-        if self.check_nearest_neighbor_pop(self.dsafe,position):
+        if self.check_nearest_neighbor_pop(self.dsafe,position) and 0 < np.nanmin(self.depth_image):
             print "DANGER"
             
 
     def dangerous(self,action):
-        vpos,apos = self.bin(self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x,self.vel_rows,self.accel_rows)
-        points = self.array[str(action)][apos][vpos]
-        if points == None:
-            #Conservative behavior for moves that have no data
-            #print "True",apos,vpos,self.actions[action] 
-            return True
+        if 0 < np.nanmin(self.depth_image):
+            vpos,apos = self.bin(self.cur_imu.linear_acceleration.x,self.cur_vel.twist.linear.x,self.vel_rows,self.accel_rows)
+            points = self.array[str(action)][apos][vpos]
+            if points == None:
+                #Conservative behavior for moves that have no data
+                #print "True",apos,vpos,self.actions[action] 
+                return 1.0 
+            else:
+                if len(points) > 20:
+                    points = points[:20]
+                local_percent = 0.0 
+                total_points = 0.0
+                for point in points:
+                    for subpoint in point:
+                        total_points+=1.0
+                        position = [subpoint[2][0],subpoint[2][1],0]
+                        if point[-1] == subpoint:
+                            if self.check_nearest_neighbor(self.radius,position):
+                                local_percent +=1 #100
+                            
+                        else:
+                            if self.check_nearest_neighbor(self.radius,position):
+                                local_percent+=1
+
+                print local_percent/total_points,local_percent,total_points
+                return local_percent/total_points
         else:
-            if len(points) > 20:
-                points = points[:20]
-            local_percent = 0.0 
-            total_points = 0.0
-            for point in points:
-                for subpoint in point:
-                    total_points+=1.0
-                    position = [subpoint[2][0],subpoint[2][1],0]
-                    if point[-1] == subpoint:
-                        if self.check_nearest_neighbor(self.radius,position):
-                            local_percent +=100
-                        
-                    else:
-                        if self.check_nearest_neighbor(self.radius,position):
-                            local_percent+=1
+            return 0.0
+    
+    def score(self,a):
+        if a == 0 or a == 4 or a == -1:
+            return 0.25
+        if a == 1 or a == 3:
+            return 0.5
+        else:
+            return 1.0 
 
-            print local_percent/total_points,local_percent,total_points
-            return local_percent/total_points > self.threshold
-
-    def _step(self, action):
+    def step(self, action):
         self.make_new_trees()
         self.steps += 1
 
         before = rospy.Time.now()
 
-        if False: #self.dangerous(action):
+        if True: #self.dangerous(action):
             print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
             action = -1
             if self.y_vel !=0:
                 self.pose.pose.position = cp.copy(self.cur_pose.pose.position)
-            self.y_vel = 0
-            best_score = 100
+            #self.y_vel = 0
+            best_score = 0 
             for a in range(len(self.actions)):
                danger = self.dangerous(a)
                if danger < self.threshold:
-                  if danger < best_score:
-                      best_score == danger
+                  if self.score(a) > best_score:
+                      best_score = self.score(a)
                       action = a
             #reward = -1
             #print self.actions[action]
         else:
-            print "deep learner"
+            #print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
         reward = self.get_reward2(action)
@@ -686,7 +707,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.last_draw = -10
         self.action = 0
         self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 2.5
+        self.pose.pose.position.y = 0 
         self.pose.pose.position.z = 5
         #self.pose.pose.orientation.x = 0
         #self.pose.pose.orientation.y = 0
