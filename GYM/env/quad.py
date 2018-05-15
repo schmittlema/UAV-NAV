@@ -632,11 +632,12 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             var_i = np.var([drop1[x],drop2[x],drop3[x],drop4[x],drop5[x]])
             var_sum+=var_i
         dobst = np.nanmin(self.depth)
-        if var_sum > 0.03 or dobst < self.dsafe+1:
-            print "Uncertain",var_sum
-            return 1
-        else:
-            return 0
+        #if var_sum > 0.03 or dobst < self.dsafe+1:
+        #    print "Uncertain",var_sum
+        #    return 1
+        #else:
+        #    return 0
+        return var_sum
 
             
     def augment(self,raw_v):

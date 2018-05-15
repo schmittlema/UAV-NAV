@@ -22,7 +22,7 @@ np.set_printoptions(threshold='nan')
 #I mean actions
 n_classes = 5
 num_episodes = 10 #How many episodes of game environment to test network with.
-path = "/home/ubuntu/loging/log-supervised/logfile-trash" #The path to save our model to.
+path = "/home/ubuntu/loging/log-supervised/logfile-low_thresh-trained" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
@@ -128,8 +128,8 @@ def main():
             init = tf.global_variables_initializer()
 	    sess.run(init)
 	    merged_summary = tf.summary.merge_all()
-            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk.meta')
-            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk")
+            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-dagger2/model-final.cptk.meta')
+            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-dagger2/model-final.cptk")
             print "Modelled Restored"
 	    writer = tf.summary.FileWriter(path)
 
@@ -180,6 +180,7 @@ def main():
                 #Periodically save the model. 
 		sess.run([tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,env.env.auto_steps/j),tf.assign(interventions,env.env.num_interventions),tf.assign(augtf,aug),tf.assign(d_t,env.env.episode_distance)])
                 print "updated stats"
+                aug = 0
                 env.env.safe_speed = 0
                 env.env.safe_speed_count = 0
                 env.env.auto_steps = 0
