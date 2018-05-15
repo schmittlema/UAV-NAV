@@ -148,6 +148,7 @@ except rospy.ServiceException, e:
    print "armed"
 
 #Main method
+start_pos.pose.position.x = 100
 rate = rospy.Rate(10)
 print "Main Running"
 while not rospy.is_shutdown():
@@ -155,6 +156,6 @@ while not rospy.is_shutdown():
     #vel_pub.publish(des_vel)
     position = [cur_pose.pose.position.x,cur_pose.pose.position.y,0]
     position = [0,0,0]
-    check_nearest_neighbor(2,position)
+    #check_nearest_neighbor(2,position)
     local_pos.publish(start_pos)
     rate.sleep()
