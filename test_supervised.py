@@ -22,12 +22,12 @@ np.set_printoptions(threshold='nan')
 #I mean actions
 n_classes = 5
 num_episodes = 10 #How many episodes of game environment to test network with.
-path = "/home/ubuntu/loging/log-supervised/logfile-low_thresh-trained" #The path to save our model to.
+path = "/home/ubuntu/loging/log-supervised/logfile-redo-safe3" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 step_length = 0.1
 learning_rate = 0.001
-augment = True
-dropout_uncertainty = True
+augment = False 
+dropout_uncertainty = False
 #--------------------------------------------------------------------------
 class network():
     def __init__(self):
@@ -128,8 +128,8 @@ def main():
             init = tf.global_variables_initializer()
 	    sess.run(init)
 	    merged_summary = tf.summary.merge_all()
-            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-dagger2/model-final.cptk.meta')
-            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-dagger2/model-final.cptk")
+            saver = tf.train.import_meta_graph('/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk.meta')
+            saver.restore(sess,"/home/ubuntu/log-supervised/log-1/model-original/model-final.cptk")
             print "Modelled Restored"
 	    writer = tf.summary.FileWriter(path)
 

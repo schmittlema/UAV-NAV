@@ -462,13 +462,13 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         return
     
     def make_new_trees(self):
-        base = 10
+        base = 15
         if(self.cur_pose.pose.position.y - self.last_draw >= base):
             self.last_draw = self.cur_pose.pose.position.y
             start_x = (self.cur_pose.pose.position.x - 35) + random.randint(0,5)
             cur_x = self.cur_pose.pose.position.x
             y = int(base * round((self.cur_pose.pose.position.y + 20)/base))
-            gap = 3
+            gap = 5
             end = start_x + 80
             if y in self.tree_bank:
                 for entry in self.tree_bank[y]:
