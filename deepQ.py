@@ -27,15 +27,16 @@ update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
-anneling_steps = 20000 #How many steps of training to reduce startE to endE.
+anneling_steps = 5000 #How many steps of training to reduce startE to endE.
 num_episodes = 720 #How many episodes of game environment to train network with.
 load_model = False #Whether to load a saved model.
-path = "/home/ubuntu/loging/log-deepq/logfile-trash" #The path to save our model to.
+path = "/home/ubuntu/loging/log-deepq/logfile-without_backup" #The path to save our model to.
 tau = 0.001 #Rate to update target network toward primary network
 learningrate = 0.001
 steps_till_training = 500 #Steps network takes before training so it has a batch to sample from
 accuracy = 0.3
 step_length = 0.1
+num_episodes = 30
 #--------------------------------------------------------------------------
 
 class Qnetwork():
@@ -128,6 +129,7 @@ def main():
 	total_steps = 0
 	rAll_t = tf.Variable(0.0)
 	j_t = tf.Variable(0.0)
+	backup_t = tf.Variable(0.0)
 	d_t = tf.Variable(0.0)
 	successes = tf.Variable(0)
 	collisions = tf.Variable(0)
@@ -137,6 +139,7 @@ def main():
 	tf.summary.scalar('Reward',rAll_t)
 	tf.summary.scalar('Episode_length',j_t)
 	tf.summary.scalar('Episode_distance',d_t)
+	tf.summary.scalar('Average Backup Time',backup_t)
 	tf.summary.scalar('Number_of_successes_total',successes)
 	tf.summary.scalar('Number_of_collisions',collisions)
 
@@ -163,7 +166,7 @@ def main():
             env.env.wait_until_start()
             #for i in range(num_episodes):
             i = 0
-            while total_steps < anneling_steps: 
+            while i < num_episodes:#total_steps < anneling_steps: 
 	        episodeBuffer = experience_buffer()
 		#Reset environment and get first new observation
                 s = env.reset()
@@ -173,6 +176,8 @@ def main():
 		j=0
                 #The Q-Network
                 last_request = rospy.Time.now() 
+                print "Episode:",i
+                print "Total Steps:",total_steps
                 while not d: #If the agent takes longer than 200 moves to reach either of the blocks, end the trial.
                     if rospy.Time.now() - last_request > rospy.Duration.from_sec(step_length):
                         env.env.next_move = False
@@ -214,7 +219,8 @@ def main():
                 rList.append(rAll)
 
                 #Periodically save the model. 
-		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,total_steps),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance)])
+		sess.run([tf.assign(rAll_t,rAll),tf.assign(j_t,j),tf.assign(successes,env.env.successes),tf.assign(collisions,env.env.collisions),tf.assign(auto_steps,total_steps),tf.assign(network_steps,env.env.network_steps/j),tf.assign(d_t,env.env.episode_distance),tf.assign(backup_t,np.average(np.array(env.env.backup_time)))])
+                env.env.backup_time = []
                 env.env.auto_steps = 0
                 env.env.network_steps = 0
 		summury = sess.run(merged_summary)

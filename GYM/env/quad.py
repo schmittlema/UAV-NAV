@@ -106,6 +106,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         rospy.Subscriber('camera/rgb/image_raw', Image, callback=self.callback_observe)
         rospy.Subscriber('camera/depth/image_raw', Image, callback=self.callback_observe_depth)
         rospy.Subscriber('/camera/depth/points', PointCloud2, callback=self.stereo_cb)
+        self.image_pub = rospy.Publisher("camera_edited",Image)
 
         rospy.Subscriber('/mavros/state',State,callback=self.state_cb)
 
@@ -184,8 +185,8 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.bridge = CvBridge()
 
         #radius of drone + extra space
-        self.radius = 1.0
-        self.dsafe = 4.5 
+        self.radius = 1.5
+        self.dsafe = 3.0
 
         #Percent of danger allowed
         self.threshold = 0.02
@@ -201,6 +202,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
     
         #PointCloud
         self.kdtree = 0
+        self.danger = False
 
         self.progress = 0
 
@@ -212,6 +214,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.tree_id = 0
         #self.tree_bank = queue.Queue()
         self.tree_bank = {}
+
+        #Measuring backup control
+        self.backup_time = []
 
         #Reading In Samples
         #self.vel_rows = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5] 
@@ -260,6 +265,14 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         except CvBridgeError, e:
             print e
         self.mono_image = resized.flatten()
+        try:
+            edited = raw_image
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            if self.danger:
+                cv2.putText(edited,"DANGER!",(10,230),font,0.8,(0,0,255),2,8)
+            self.image_pub.publish(self.bridge.cv2_to_imgmsg(edited,"bgr8"))
+        except CvBridgeError, e:
+            print e
         #For debugging
         #cv2.imshow('test',resized)
         #cv2.waitKey(0)
@@ -478,7 +491,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
 
     def check_nearest_neighbor_pop(self,radius,point):
         pc_point = pcl.PointCloud()
-        #point = self.orient_point(point)
+        point = self.orient_point(point)
         point = [point[0],point[2],point[1]]
         pc_point.from_list([point])
         nearest =  self.kd_tree.nearest_k_search_for_cloud(pc_point,10)[1][0]
@@ -486,10 +499,10 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         for kpoint in nearest:
             if math.sqrt(kpoint) < radius:
                 population +=1
-        if population > 5:
-            return "Danger"
+        if population > 2:
+            return True 
         else:
-            return "" 
+            return False 
 
     def get_data(self):
         print "Waiting for mavros..."
@@ -517,7 +530,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
             self.steps = 0
             self.episode_distance = self.cur_pose.pose.position.y
 	    self.hard_reset()
-        if self.cur_pose.pose.position.y > 200:
+        if self.cur_pose.pose.position.y > 100:
 	    print "GOAL"
             done = True
             self.steps = 0
@@ -548,6 +561,9 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         position = [0,0,0]
         if self.check_nearest_neighbor_pop(self.dsafe,position) and 0 < np.nanmin(self.depth_image):
             print "DANGER"
+            return True
+        else:
+            return False
             
 
     def dangerous(self,action):
@@ -568,6 +584,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                         total_points+=1.0
                         position = [subpoint[2][0],subpoint[2][1],0]
                         if point[-1] == subpoint:
+                            #position = [subpoint[2][0],subpoint[2][1]+1.0,0]
                             if self.check_nearest_neighbor(self.radius,position):
                                 local_percent +=1 #100
                             
@@ -575,7 +592,7 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                             if self.check_nearest_neighbor(self.radius,position):
                                 local_percent+=1
 
-                print local_percent/total_points,local_percent,total_points
+                #print local_percent/total_points,local_percent,total_points
                 return local_percent/total_points
         else:
             return 0.0
@@ -593,15 +610,17 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
         self.steps += 1
 
         before = rospy.Time.now()
+        reward = 0
 
-        if True: #self.dangerous(action):
+        if False:#self.dangerous(action):
+            self.danger = True
+            backup_start = rospy.Time.now()
             print "autopilot"
             self.auto_steps += 1
             self.network_stepped = False
             action = -1
             if self.y_vel !=0:
                 self.pose.pose.position = cp.copy(self.cur_pose.pose.position)
-            #self.y_vel = 0
             best_score = 0 
             for a in range(len(self.actions)):
                danger = self.dangerous(a)
@@ -609,13 +628,16 @@ class GazeboQuadEnv(gazebo_env.GazeboEnv):
                   if self.score(a) > best_score:
                       best_score = self.score(a)
                       action = a
-            #reward = -1
+            reward = -1
+            self.backup_time.append((rospy.Time.now() - backup_start).to_sec())
             #print self.actions[action]
         else:
-            #print "deep learner"
+            self.backup_time.append(0)
+            self.danger = False
+            print "deep learner"
             self.network_steps += 1
             self.network_stepped = True
-        reward = self.get_reward2(action)
+            reward = self.get_reward(action)
 
         #print (rospy.Time.now()-before).to_sec()
 
